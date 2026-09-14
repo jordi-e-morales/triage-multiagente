@@ -1,0 +1,62 @@
+# UI de la demo (Streamlit): Deployment + Service.
+#
+# rol: ui  -> no es agente ni registro. La política de Cilium deberá dejarla
+# hablar con el orquestador (POST /v1/casos, GET /v1/corridas/*) y, para la
+# página Admin, con /salud de los demás y /api/tags de Ollama.
+#
+# Aplicar (con la imagen cargada en kind):
+#   kubectl apply -f deploy/k8s/ui.yaml
+# Abrir desde Windows (port-forward en la VM, escuchando en su IP):
+#   kubectl -n agentes port-forward --address 0.0.0.0 svc/ui 8501:8501
+#   http://<IP de la VM>:8501
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ui}
+  template:
+    metadata:
+      labels: {app: ui, rol: ui}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: ui
+          image: triage-ui:0.1.0
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8501
+          # Endpoint de salud propio de Streamlit.
+          readinessProbe:
+            httpGet: {path: /_stcore/health, port: 8501}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 768Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Único lugar escribible: config y caché de Streamlit (HOME=/tmp).
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: agentes
+spec:
+  selector: {app: ui}
+  ports:
+    - {port: 8501, targetPort: 8501}

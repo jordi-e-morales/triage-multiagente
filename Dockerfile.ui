@@ -1,0 +1,43 @@
+# Imagen de la UI (Streamlit). Habla solo con el Orquestador (y, desde la
+# página Admin, hace GET de salud a los demás).
+#
+# Construir y cargar en kind (dentro de la VM):
+#   docker build -f Dockerfile.ui -t triage-ui:0.1.0 .
+#   kind load docker-image triage-ui:0.1.0 --name agentes --nodes agentes-worker
+
+# Misma base fijada por digest que la imagen de los agentes.
+FROM python:3.13-slim@sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    # Streamlit escribe config y caché en $HOME; el sistema de archivos del
+    # contenedor es de solo lectura, así que HOME apunta a /tmp (un emptyDir).
+    HOME=/tmp
+
+WORKDIR /app
+
+COPY requirements-ui.txt .
+RUN pip install --no-cache-dir -r requirements-ui.txt
+
+# Solo lo que usa la UI de la demo.
+COPY app.py .
+COPY pages/__init__.py pages/deliberacion.py pages/admin.py pages/
+COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/
+COPY schemas/ schemas/
+COPY servicios/__init__.py servicios/config.py servicios/verificar.py servicios/
+# Expedientes sintéticos que la UI ofrece para deliberar.
+COPY data/__init__.py data/
+COPY data/casos/ data/casos/
+
+RUN useradd --uid 10001 --no-create-home ui
+USER 10001
+
+EXPOSE 8501
+# - headless y sin telemetría: el día del evento nada sale a internet.
+# - showSidebarNavigation=false: Streamlit listaría solo la carpeta pages/;
+#   la navegación la hace app.py.
+# - fileWatcherType none: en el contenedor el código no cambia.
+CMD ["streamlit", "run", "app.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", \
+     "--browser.gatherUsageStats=false", "--client.showSidebarNavigation=false", \
+     "--server.fileWatcherType=none"]

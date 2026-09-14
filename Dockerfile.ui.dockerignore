@@ -1,0 +1,12 @@
+# Exclusiones del build de la UI (BuildKit usa este archivo en lugar de
+# .dockerignore cuando se construye con -f Dockerfile.ui).
+# A diferencia de la imagen de agentes, aquí SÍ entran pages/ y data/casos/.
+.git
+**/__pycache__
+*.pyc
+.venv
+tests/
+herramientas/
+ml/
+deploy/
+*.md

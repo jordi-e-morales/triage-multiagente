@@ -1,0 +1,8 @@
+# Dependencias de la imagen de la UI (Streamlit).
+# Sin torch, xgboost ni plotly: las páginas del demo de hipotecas que los
+# usan no entran en esta imagen. Versiones exactas de primer nivel;
+# compatibles entre sí según los requisitos publicados de streamlit 1.63.0.
+streamlit==1.63.0
+pandas==3.0.5
+pydantic==2.11.4
+requests==2.31.0

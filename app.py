@@ -4,7 +4,7 @@ AGNTCY Mortgage Underwriting Demo — Streamlit Frontend
 import streamlit as st
 
 st.set_page_config(
-    page_title="AGNTCY Mortgage Underwriting",
+    page_title="Multi-agentes bajo control",
     page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -82,13 +82,42 @@ h3 { font-weight: 600 !important; color: #0a0a0a !important; }
     border-radius: 3px !important;
 }
 .stButton > button:hover { background: #b91c1c !important; }
+
+/* ─── Deliberación (triage de alertas) ─── */
+.etiqueta-sintetico { background: #0a0a0a; color: #fff; padding: 2px 8px; font-size: 0.7rem;
+                      font-weight: 700; letter-spacing: 0.08em; border-radius: 3px; margin-right: 6px; }
+/* Hechos: lo que escribió un tercero se ve distinto de lo que produjo el sistema. */
+.hecho-interno { border-left: 4px solid #6b7280; background: #f8f8f8; padding: 6px 10px; margin: 4px 0; }
+.hecho-externo { border-left: 4px solid #d97706; background: #fffbeb; padding: 6px 10px; margin: 4px 0; }
+.marca-externo { background: #d97706; color: #fff; font-size: 0.65rem; font-weight: 700;
+                 padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
+.cita { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #6b7280; }
+.tarjeta-agente { border: 1px solid #e5e7eb; border-left-width: 6px; padding: 10px 14px; margin: 10px 0; background: #fff; }
+.tarjeta-investigador { border-left-color: #E31E24; }
+.tarjeta-defensor { border-left-color: #2563eb; }
+.tarjeta-titulo { font-weight: 700; font-size: 0.95rem; }
+.tarjeta-tesis { font-size: 1.05rem; margin: 6px 0; }
+.tarjeta-meta { font-size: 0.7rem; color: #6b7280; }
+.rebate { font-size: 0.8rem; color: #374151; font-style: italic; }
+.salto-lateral { background: #ede9fe; color: #5b21b6; font-size: 0.7rem; font-weight: 600;
+                 padding: 1px 8px; border-radius: 3px; margin-left: 6px; }
+.paso-omitido { background: #fee2e2; color: #991b1b; padding: 6px 10px; margin: 6px 0; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
 
+# ─── Páginas del demo previo de hipotecas ─────────────────────────────────────
+# Cuatro de esas páginas importan agents.pipeline / ml.models, que requieren
+# torch y xgboost (más de 1 GB). La imagen de la UI de la demo no los trae,
+# así que esas páginas solo aparecen donde esos paquetes están instalados.
+import importlib.util
+
+HIPOTECAS_DISPONIBLE = all(importlib.util.find_spec(m) for m in ("torch", "xgboost"))
+
+
 # ─── Session state defaults ───────────────────────────────────────────────────
 if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
+    st.session_state.page = "Deliberación"
 if "pipeline_runs" not in st.session_state:
     st.session_state.pipeline_runs = []
 if "current_run" not in st.session_state:
@@ -113,21 +142,23 @@ with st.sidebar:
         </div>
         <div style="height: 3px; background: #E31E24; margin: 6px 0 4px 0;"></div>
         <div style="font-size: 0.7rem; color: #aaa; letter-spacing: 0.1em; text-transform: uppercase;">
-            Mortgage Underwriting Demo
+            Multi-agentes bajo control
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
 
-    pages = [
-        "📊 Dashboard",
-        "📝 New Application",
-        "🗂️ Applications",
-        "🚀 Test Scenarios",
-        "🤖 Agent Directory",
-        "⚙️ Settings",
-    ]
+    pages = ["🧭 Deliberación"]
+    if HIPOTECAS_DISPONIBLE:
+        pages += [
+            "📊 Dashboard",
+            "📝 New Application",
+            "🗂️ Applications",
+            "🚀 Test Scenarios",
+            "🤖 Agent Directory",
+            "⚙️ Settings",
+        ]
     # Página Admin (apuntes de contenedores y modelos). Se oculta en el stand
     # con MOSTRAR_ADMIN=0.
     from servicios.config import admin_visible
@@ -137,7 +168,7 @@ with st.sidebar:
     page_keys = [p.split(" ", 1)[1] for p in pages]
 
     selected = st.radio("Navigation", page_keys, index=page_keys.index(
-        st.session_state.page if st.session_state.page in page_keys else "Dashboard"
+        st.session_state.page if st.session_state.page in page_keys else "Deliberación"
     ), label_visibility="collapsed")
     st.session_state.page = selected
 
@@ -155,7 +186,10 @@ with st.sidebar:
 # ─── Page routing ─────────────────────────────────────────────────────────────
 page = st.session_state.page
 
-if page == "Dashboard":
+if page == "Deliberación":
+    from pages.deliberacion import render
+    render()
+elif page == "Dashboard":
     from pages.dashboard import render
     render()
 elif page == "New Application":
