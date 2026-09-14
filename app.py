@@ -128,6 +128,11 @@ with st.sidebar:
         "🤖 Agent Directory",
         "⚙️ Settings",
     ]
+    # Página Admin (apuntes de contenedores y modelos). Se oculta en el stand
+    # con MOSTRAR_ADMIN=0.
+    from servicios.config import admin_visible
+    if admin_visible():
+        pages.append("🛠️ Admin")
     page_labels = {p.split(" ", 1)[1]: p for p in pages}
     page_keys = [p.split(" ", 1)[1] for p in pages]
 
@@ -167,4 +172,7 @@ elif page == "Agent Directory":
     render()
 elif page == "Settings":
     from pages.settings import render
+    render()
+elif page == "Admin":
+    from pages.admin import render
     render()

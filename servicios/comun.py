@@ -8,18 +8,12 @@ mismo proceso, las llamadas entre ellos serían de memoria y ni Cilium ni
 Tetragon tendrían nada que ver.
 
 Todos se configuran con variables de entorno, que es como Kubernetes le pasa
-configuración a un contenedor (campo `env` del Deployment).
+configuración a un contenedor. A dónde apunta cada componente y cada modelo
+está en un solo lugar: servicios/config.py.
 """
 from __future__ import annotations
 
-import os
-
 from fastapi import FastAPI
-
-# URL del servidor de modelos. No se asume que Ollama corre "aquí mismo":
-# en el cluster será otro contenedor con su propio Service (p.ej.
-# http://ollama:11434). Cambiar de backend es cambiar esta variable.
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 
 
 def crear_app(componente: str) -> FastAPI:

@@ -1,0 +1,87 @@
+"""
+Catálogo único de endpoints: a dónde apunta cada componente y cada modelo.
+
+Todo sale de variables de entorno. En Kubernetes esas variables vienen de un
+ConfigMap (deploy/k8s/endpoints.yaml) que los Deployments cargan con
+`envFrom`. Cambiar un apunte en dCloud es:
+
+    1. editar deploy/k8s/endpoints.yaml
+    2. kubectl apply -f deploy/k8s/endpoints.yaml
+    3. kubectl -n agentes rollout restart deploy   (las variables se leen al arrancar)
+
+La página Admin de la UI muestra estos valores y prueba la conectividad, pero
+NO los modifica. Poder redirigir a qué modelo habla un agente es una capacidad
+peligrosa (permite desviar tráfico), así que no la damos a ningún proceso del
+cluster: la ejerce una persona con kubectl.
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Servicio:
+    nombre: str
+    variable: str   # variable de entorno de la que sale la URL
+    url: str
+
+
+@dataclass(frozen=True)
+class Modelo:
+    rol: str        # "local" o "grande"
+    usado_por: str
+    variable_url: str
+    url: str
+    variable_modelo: str
+    modelo: str
+
+
+# Nombres de Service de Kubernetes dentro del namespace. Por defecto todos
+# escuchan en el 8000; así el valor por omisión sirve tal cual en el cluster.
+_SERVICIOS = [
+    ("orquestador", "URL_ORQUESTADOR", "http://orquestador:8000"),
+    ("enriquecedor", "URL_ENRIQUECEDOR", "http://enriquecedor:8000"),
+    ("investigador", "URL_INVESTIGADOR", "http://investigador:8000"),
+    ("defensor", "URL_DEFENSOR", "http://defensor:8000"),
+    ("arbitro", "URL_ARBITRO", "http://arbitro:8000"),
+    ("registro", "URL_REGISTRO", "http://registro:8000"),
+]
+
+
+def servicios() -> list[Servicio]:
+    return [Servicio(n, v, os.getenv(v, d)) for n, v, d in _SERVICIOS]
+
+
+def url_de(nombre: str) -> str:
+    """URL de un componente por nombre, p.ej. url_de('registro')."""
+    for s in servicios():
+        if s.nombre == nombre:
+            return s.url
+    raise KeyError(nombre)
+
+
+def modelos() -> list[Modelo]:
+    """
+    Dos modelos, como en la matriz de permisos:
+    - "local": solo el Enriquecedor, que es el único que ve datos del sujeto.
+    - "grande": Investigador, Defensor y Árbitro.
+
+    En desarrollo ambos pueden apuntar al mismo Ollama y al mismo modelo
+    pequeño. En dCloud serán dos servidores distintos (7B y 32B), y separarlos
+    por URL es lo que permite que Cilium impida al Enriquecedor llegar al
+    grande.
+    """
+    return [
+        Modelo("local", "enriquecedor",
+               "LLM_LOCAL_URL", os.getenv("LLM_LOCAL_URL", "http://ollama:11434"),
+               "LLM_LOCAL_MODELO", os.getenv("LLM_LOCAL_MODELO", "qwen2.5:3b")),
+        Modelo("grande", "investigador, defensor, arbitro",
+               "LLM_GRANDE_URL", os.getenv("LLM_GRANDE_URL", "http://ollama:11434"),
+               "LLM_GRANDE_MODELO", os.getenv("LLM_GRANDE_MODELO", "qwen2.5:3b")),
+    ]
+
+
+def admin_visible() -> bool:
+    """En el stand se oculta la página Admin con MOSTRAR_ADMIN=0."""
+    return os.getenv("MOSTRAR_ADMIN", "1") != "0"

@@ -1,0 +1,41 @@
+# Apuntes de endpoints: a dónde habla cada componente y qué modelo usa.
+#
+# Es la fuente de verdad de servicios/config.py. Cada Deployment lo carga con
+#   envFrom:
+#     - configMapRef:
+#         name: endpoints
+# y cada clave se vuelve una variable de entorno dentro del contenedor.
+#
+# Para cambiar un apunte (por ejemplo, al pasar a dCloud):
+#   kubectl apply -f deploy/k8s/endpoints.yaml
+#   kubectl -n agentes rollout restart deploy
+# El restart hace falta porque las variables de entorno solo se leen al
+# arrancar el contenedor.
+#
+# La página Admin de la UI muestra estos valores y prueba que respondan, pero
+# no los cambia (decisión de seguridad, ver servicios/config.py).
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: endpoints
+  namespace: agentes
+data:
+  # Componentes. "orquestador" es el nombre del Service de Kubernetes, que
+  # resuelve por DNS dentro del namespace. Todos escuchan en el 8000.
+  URL_ORQUESTADOR: "http://orquestador:8000"
+  URL_ENRIQUECEDOR: "http://enriquecedor:8000"
+  URL_INVESTIGADOR: "http://investigador:8000"
+  URL_DEFENSOR: "http://defensor:8000"
+  URL_ARBITRO: "http://arbitro:8000"
+  URL_REGISTRO: "http://registro:8000"
+
+  # Modelos. En el lab local los dos apuntan al mismo contenedor de Ollama.
+  # En dCloud: LLM_LOCAL_* -> vLLM con el 7B, LLM_GRANDE_* -> vLLM con el 32B.
+  LLM_LOCAL_URL: "http://ollama:11434"
+  LLM_LOCAL_MODELO: "qwen2.5:3b"
+  LLM_GRANDE_URL: "http://ollama:11434"
+  LLM_GRANDE_MODELO: "qwen2.5:3b"
+
+  # "0" oculta la página Admin (presets del stand).
+  MOSTRAR_ADMIN: "1"

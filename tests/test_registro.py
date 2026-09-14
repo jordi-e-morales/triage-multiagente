@@ -7,15 +7,12 @@ un servidor escuchando en un puerto.
 
     python -m unittest tests.test_registro -v
 """
-import socket
-import threading
-import time
 import unittest
 
 import requests
-import uvicorn
 
 from servicios.registro import app
+from tests._servidor import levantar
 
 DISPOSICION = {
     "recomendacion": "pedir_informacion",
@@ -26,26 +23,10 @@ DISPOSICION = {
 }
 
 
-def _puerto_libre() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 class TestRegistro(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        puerto = _puerto_libre()
-        cls.base = f"http://127.0.0.1:{puerto}"
-        cls.servidor = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=puerto, log_level="warning"))
-        threading.Thread(target=cls.servidor.run, daemon=True).start()
-        for _ in range(50):  # espera hasta 5 s a que arranque
-            try:
-                requests.get(f"{cls.base}/salud", timeout=0.2)
-                return
-            except requests.ConnectionError:
-                time.sleep(0.1)
-        raise RuntimeError("el registro no arrancó")
+        cls.servidor, cls.base = levantar(app)
 
     @classmethod
     def tearDownClass(cls):
