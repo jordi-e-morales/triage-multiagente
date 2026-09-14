@@ -56,6 +56,9 @@ class PeticionDeliberar(_Peticion):
 
 class RespuestaAgente(BaseModel):
     resultados: list[dict]
+    # Llamadas que este componente hizo a otros mientras atendía la petición
+    # (incluidas las de quien él llamó). Carril izquierdo del panel.
+    llamadas: list[dict] = Field(default_factory=list)
 
 
 def exigir_caso_recortado(caso: Case) -> None:

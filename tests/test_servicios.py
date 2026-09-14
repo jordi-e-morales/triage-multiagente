@@ -120,6 +120,32 @@ class TestDeliberacionPorHTTP(unittest.TestCase):
         disp = reg["disposiciones"][0]
         self.assertEqual((disp["trace_id"], disp["origen_declarado"]), (c["trace_id"], "arbitro"))
 
+    def test_carril_izquierdo_registra_cada_llamada(self):
+        c = self._correr(self._caso("t-carril"))
+        ll = c["llamadas"]
+        aristas = [(x["origen"], x["destino"], x["ruta"]) for x in ll]
+        esperadas = [
+            ("orquestador", "registro", "/v1/anexar"),         # inicio
+            ("orquestador", "enriquecedor", "/v1/enriquecer"),
+            ("enriquecedor", "registro", "/v1/anexar"),
+            ("orquestador", "investigador", "/v1/argumentar"),  # r1
+            ("investigador", "registro", "/v1/anexar"),
+            ("orquestador", "defensor", "/v1/objetar"),         # r1
+            ("defensor", "registro", "/v1/anexar"),
+            ("orquestador", "investigador", "/v1/argumentar"),  # r2
+            ("investigador", "registro", "/v1/anexar"),
+            ("investigador", "defensor", "/v1/objetar"),        # salto lateral
+            ("defensor", "registro", "/v1/anexar"),
+            ("orquestador", "arbitro", "/v1/deliberar"),
+            ("arbitro", "registro", "/v1/disponer"),
+            ("orquestador", "registro", "/v1/anexar"),          # fin
+        ]
+        self.assertEqual(sorted(aristas), sorted(esperadas))
+        self.assertEqual({x["trace_id"] for x in ll}, {c["trace_id"]})
+        self.assertEqual({x["estado_http"] for x in ll}, {200})
+        self.assertEqual(len({x["span_id"] for x in ll}), len(ll))
+        self.assertEqual([x["ts_ms"] for x in ll], sorted(x["ts_ms"] for x in ll))
+
     def test_nadie_mas_que_el_enriquecedor_ve_al_sujeto(self):
         self._correr(self._caso("t-recorte"))
         for tipo, prompt in self.modelo.prompts:

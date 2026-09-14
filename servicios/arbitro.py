@@ -24,8 +24,9 @@ def deliberar(p: PeticionDeliberar, x_trace_id: str = Header(...),
     historial = [triage.resultado_de_dict(d) for d in p.historial]
     r = triage.deliberar(p.caso, p.contexto, historial, p.presupuesto_agotado, llamar=red.llamar_modelo)
     r.metricas["llamado_por"] = x_agente_origen
+    bitacora: list[dict] = []
     registro = red.llamar_servicio("arbitro", "registro", "/v1/disponer",
                                    {"case_id": p.caso.case_id, "disposicion": r.mensaje.model_dump()},
-                                   x_trace_id, timeout_s=30)
+                                   x_trace_id, timeout_s=30, bitacora=bitacora)
     r.metricas["registro"] = registro
-    return {"resultados": [triage.resultado_a_dict(r)]}
+    return {"resultados": [triage.resultado_a_dict(r)], "llamadas": bitacora}

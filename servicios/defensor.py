@@ -24,5 +24,6 @@ def objetar(p: PeticionDebate, x_trace_id: str = Header(...),
     r = triage.objetar(p.caso, p.contexto, historial, p.ronda, llamar=red.llamar_modelo)
     # Quién pidió esta objeción: en la ronda 2 debe decir "investigador".
     r.metricas["llamado_por"] = x_agente_origen
-    red.anexar("defensor", p.caso.case_id, "objecion", r.mensaje.model_dump(), x_trace_id)
-    return {"resultados": [triage.resultado_a_dict(r)]}
+    bitacora: list[dict] = []
+    red.anexar("defensor", p.caso.case_id, "objecion", r.mensaje.model_dump(), x_trace_id, bitacora)
+    return {"resultados": [triage.resultado_a_dict(r)], "llamadas": bitacora}

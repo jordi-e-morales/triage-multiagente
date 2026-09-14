@@ -25,7 +25,8 @@ def argumentar(p: PeticionArgumentar, x_trace_id: str = Header(...),
     historial = [triage.resultado_de_dict(d) for d in p.historial]
     r = triage.argumentar(p.caso, p.contexto, historial, p.ronda, llamar=red.llamar_modelo)
     r.metricas["llamado_por"] = x_agente_origen
-    red.anexar("investigador", p.caso.case_id, "argumento", r.mensaje.model_dump(), x_trace_id)
+    bitacora: list[dict] = []
+    red.anexar("investigador", p.caso.case_id, "argumento", r.mensaje.model_dump(), x_trace_id, bitacora)
     resultados = [triage.resultado_a_dict(r)]
 
     if p.pedir_cierre:
@@ -36,7 +37,9 @@ def argumentar(p: PeticionArgumentar, x_trace_id: str = Header(...),
             "historial": p.historial + resultados,
             "ronda": p.ronda,
         }
-        cierre = red.llamar_servicio("investigador", "defensor", "/v1/objetar", cuerpo, x_trace_id)
+        cierre = red.llamar_servicio("investigador", "defensor", "/v1/objetar", cuerpo, x_trace_id,
+                                     bitacora=bitacora)
         resultados += cierre["resultados"]
+        bitacora += cierre.get("llamadas", [])   # lo que hizo el Defensor al atender el cierre
 
-    return {"resultados": resultados}
+    return {"resultados": resultados, "llamadas": bitacora}

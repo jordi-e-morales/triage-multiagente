@@ -73,12 +73,31 @@ def conducir(corrida: dict, caso: Case) -> None:
             corrida["tokens_consumidos"] += costo
         return costo
 
-    red.anexar("orquestador", caso.case_id, "inicio_deliberacion",
-               {"presupuesto_tokens": presupuesto}, trace)
+    def llamar(destino: str, ruta: str, cuerpo: dict) -> list[dict]:
+        """Llama a un agente y guarda en la corrida la llamada propia y las que
+        hizo el agente (carril izquierdo del panel), aunque la llamada falle."""
+        propias: list[dict] = []
+        try:
+            respuesta = red.llamar_servicio("orquestador", destino, ruta, cuerpo, trace, bitacora=propias)
+        finally:
+            with _candado:
+                corrida["llamadas"] += propias
+        with _candado:
+            corrida["llamadas"] += respuesta.get("llamadas", [])
+        return respuesta["resultados"]
+
+    def anexar_propio(tipo: str, contenido: dict) -> None:
+        propias: list[dict] = []
+        try:
+            red.anexar("orquestador", caso.case_id, tipo, contenido, trace, bitacora=propias)
+        finally:
+            with _candado:
+                corrida["llamadas"] += propias
+
+    anexar_propio("inicio_deliberacion", {"presupuesto_tokens": presupuesto})
 
     # 1. Enriquecimiento: el único paso que recibe el caso completo.
-    r = red.llamar_servicio("orquestador", "enriquecedor", "/v1/enriquecer",
-                            {"caso": caso.model_dump()}, trace)["resultados"]
+    r = llamar("enriquecedor", "/v1/enriquecer", {"caso": caso.model_dump()})
     ultimo_costo = registrar_paso("enriquecer", r)
     contexto = r[0]["mensaje"]
 
@@ -99,19 +118,19 @@ def conducir(corrida: dict, caso: Case) -> None:
                                          "ts_ms": int(time.time() * 1000), "tokens": 0})
             break
         cuerpo = {"caso": recortado, "contexto": contexto, "historial": _historial_debate(corrida), **extra}
-        r = red.llamar_servicio("orquestador", destino, ruta, cuerpo, trace)["resultados"]
+        r = llamar(destino, ruta, cuerpo)
         ultimo_costo = registrar_paso(nombre, r)
 
     # 3. El Árbitro siempre dispone.
     cuerpo = {"caso": recortado, "contexto": contexto, "historial": _historial_debate(corrida),
               "presupuesto_agotado": agotado}
-    r = red.llamar_servicio("orquestador", "arbitro", "/v1/deliberar", cuerpo, trace)["resultados"]
+    r = llamar("arbitro", "/v1/deliberar", cuerpo)
     registrar_paso("deliberar", r)
 
     with _candado:
         corrida["presupuesto_agotado"] = agotado
-    red.anexar("orquestador", caso.case_id, "fin_deliberacion",
-               {"tokens_consumidos": corrida["tokens_consumidos"], "presupuesto_agotado": agotado}, trace)
+    anexar_propio("fin_deliberacion", {"tokens_consumidos": corrida["tokens_consumidos"],
+                                       "presupuesto_agotado": agotado})
 
 
 def _historial_debate(corrida: dict) -> list[dict]:
@@ -149,6 +168,7 @@ def iniciar(p: PeticionCaso) -> dict:
         "presupuesto_agotado": False,
         "pasos": [],
         "resultados": [],
+        "llamadas": [],   # carril izquierdo: cada llamada entre componentes con su traza
         "error": None,
     }
     with _candado:
@@ -165,4 +185,5 @@ def consultar(corrida_id: str) -> dict:
         corrida = _corridas.get(corrida_id)
         if corrida is None:
             raise HTTPException(status_code=404, detail="corrida desconocida")
-        return {**corrida, "pasos": list(corrida["pasos"]), "resultados": list(corrida["resultados"])}
+        return {**corrida, "pasos": list(corrida["pasos"]), "resultados": list(corrida["resultados"]),
+                "llamadas": sorted(corrida["llamadas"], key=lambda ll: ll["ts_ms"])}

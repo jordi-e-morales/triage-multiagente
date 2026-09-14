@@ -18,6 +18,7 @@ pruebas puedan sustituirla en todos los servicios a la vez.
 from __future__ import annotations
 
 import os
+import time
 import uuid
 
 import requests
@@ -43,19 +44,41 @@ def nuevo_trace_id() -> str:
 
 
 def llamar_servicio(origen: str, destino: str, ruta: str, cuerpo: dict, trace_id: str | None,
-                    timeout_s: int | None = None) -> dict:
-    """POST a otro componente propagando la traza. Lanza excepción si no es 2xx."""
-    cabeceras = {"X-Span-Id": uuid.uuid4().hex[:16], "X-Agente-Origen": origen}
+                    timeout_s: int | None = None, bitacora: list | None = None) -> dict:
+    """
+    POST a otro componente propagando la traza. Lanza excepción si no es 2xx.
+
+    bitacora: si se pasa una lista, se le agrega un registro de esta llamada.
+    Es el CARRIL IZQUIERDO del panel de dos carriles: lo que el componente
+    declara que hizo (origen, destino, ruta, traza, span, cuándo, resultado).
+    Se contrasta con lo que vio la red (kernel_watch, carril derecho).
+    """
+    span_id = uuid.uuid4().hex[:16]
+    cabeceras = {"X-Span-Id": span_id, "X-Agente-Origen": origen}
     if trace_id:
         cabeceras["X-Trace-Id"] = trace_id
-    r = requests.post(f"{url_de(destino).rstrip('/')}{ruta}", json=cuerpo, headers=cabeceras,
-                      timeout=timeout_s or TIMEOUT_S)
-    r.raise_for_status()
-    return r.json()
+    inicio_ms = int(time.time() * 1000)
+    estado = None
+    try:
+        r = requests.post(f"{url_de(destino).rstrip('/')}{ruta}", json=cuerpo, headers=cabeceras,
+                          timeout=timeout_s or TIMEOUT_S)
+        estado = r.status_code
+        r.raise_for_status()
+        return r.json()
+    finally:
+        if bitacora is not None:
+            bitacora.append({
+                "ts_ms": inicio_ms,
+                "duracion_ms": int(time.time() * 1000) - inicio_ms,
+                "origen": origen, "destino": destino, "ruta": ruta, "metodo": "POST",
+                "trace_id": trace_id, "span_id": span_id,
+                "estado_http": estado,          # None = no hubo respuesta (timeout, conexión)
+            })
 
 
-def anexar(autor: str, case_id: str, tipo: str, contenido: dict, trace_id: str | None) -> dict:
+def anexar(autor: str, case_id: str, tipo: str, contenido: dict, trace_id: str | None,
+           bitacora: list | None = None) -> dict:
     """Anexa al Registro (POST /v1/anexar). Todos los agentes pueden."""
     return llamar_servicio(autor, "registro", "/v1/anexar",
                            {"case_id": case_id, "autor": autor, "tipo": tipo, "contenido": contenido},
-                           trace_id, timeout_s=30)
+                           trace_id, timeout_s=30, bitacora=bitacora)

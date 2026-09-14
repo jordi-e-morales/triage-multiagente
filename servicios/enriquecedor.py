@@ -20,7 +20,8 @@ app = crear_app("enriquecedor")
 @app.post("/v1/enriquecer", response_model=RespuestaAgente)
 def enriquecer(p: PeticionEnriquecer, x_trace_id: str = Header(...),
                x_agente_origen: str | None = Header(None)) -> dict:
+    bitacora: list[dict] = []
     r = triage.enriquecer(p.caso, llamar=red.llamar_modelo)
     r.metricas["llamado_por"] = x_agente_origen
-    red.anexar("enriquecedor", p.caso.case_id, "contexto", r.mensaje.model_dump(), x_trace_id)
-    return {"resultados": [triage.resultado_a_dict(r)]}
+    red.anexar("enriquecedor", p.caso.case_id, "contexto", r.mensaje.model_dump(), x_trace_id, bitacora)
+    return {"resultados": [triage.resultado_a_dict(r)], "llamadas": bitacora}
