@@ -201,6 +201,56 @@ def _renderizar_debate(historial: list[ResultadoAgente]) -> str:
     return "\n\n".join(bloques)
 
 
+# ─── Lo que viaja por la red hacia quienes debaten ───────────────────────────
+
+def caso_para_deliberar(caso: Case) -> Case:
+    """
+    Copia del caso sin datos del sujeto ni texto de la evidencia.
+
+    Investigador, Defensor y Árbitro corren en otros pods. Si el Orquestador
+    les mandara el caso completo, el nombre del sujeto y el texto externo
+    viajarían por la red hasta ellos aunque el prompt no los usara, y la matriz
+    de permisos ("solo el Enriquecedor ve datos del sujeto") sería mentira.
+
+    Se conserva lo que necesitan: la alerta, el id y contexto declarado del
+    sujeto, historial, política, y de cada evidencia solo id, fecha, tipo y
+    procedencia (para validar citas y marcar hechos externos). El contenido
+    de la evidencia les llega únicamente como hechos del Enriquecedor.
+    """
+    datos = caso.model_dump()
+    datos["subject"]["display_name"] = caso.subject.id
+    datos["subject"]["attributes"] = {}
+    for e in datos["evidence"]:
+        e["summary"] = ""
+        e["free_text"] = ""
+        e["attributes"] = {}
+    return Case.model_validate(datos)
+
+
+def es_caso_para_deliberar(caso: Case) -> bool:
+    """Lo usan los servicios que debaten para rechazar un caso sin recortar."""
+    return (caso.subject.display_name == caso.subject.id
+            and not caso.subject.attributes
+            and all(not e.summary and not e.free_text and not e.attributes for e in caso.evidence))
+
+
+_CLASE_POR_AGENTE = {
+    "enriquecedor": ContextoV1, "investigador": ArgumentoV1,
+    "defensor": ObjecionV1, "arbitro": DisposicionV1,
+}
+
+
+def resultado_a_dict(r: ResultadoAgente) -> dict:
+    return {"agente": r.agente, "mensaje": r.mensaje.model_dump(), "metricas": r.metricas,
+            "intentos": r.intentos, "citas_invalidas": r.citas_invalidas}
+
+
+def resultado_de_dict(d: dict) -> ResultadoAgente:
+    clase = _CLASE_POR_AGENTE[d["agente"]]
+    return ResultadoAgente(d["agente"], clase.model_validate(d["mensaje"]), d.get("metricas", {}),
+                           d.get("intentos", 1), d.get("citas_invalidas", []))
+
+
 # ─── Controles que aplica el código sobre la salida del Enriquecedor ─────────
 
 def aplicar_procedencia(contexto: ContextoV1, caso: Case) -> ContextoV1:

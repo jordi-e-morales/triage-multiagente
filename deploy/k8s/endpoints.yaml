@@ -44,5 +44,12 @@ data:
   # chicos de desarrollo. Si un prompt no cabe, la llamada falla (no recorta).
   LLM_NUM_CTX: "8192"
 
+  # Presupuesto de tokens por caso que aplica el Orquestador (prompt +
+  # respuesta). El debate completo de aml-0042 con 7b gastó ~15.8k.
+  PRESUPUESTO_TOKENS_CASO: "30000"
+  # Tiempo máximo de una llamada entre componentes. En CPU un paso con salto
+  # lateral encadena dos llamadas al modelo.
+  TIMEOUT_AGENTE_S: "1800"
+
   # "0" oculta la página Admin (presets del stand).
   MOSTRAR_ADMIN: "1"

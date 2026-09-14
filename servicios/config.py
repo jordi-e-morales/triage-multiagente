@@ -91,6 +91,17 @@ def modelo(rol: str) -> Modelo:
     return next(m for m in modelos() if m.rol == rol)
 
 
+def presupuesto_tokens_caso() -> int:
+    """
+    Tokens (prompt + respuesta) que el Orquestador permite gastar por caso.
+
+    Referencia medida: el debate completo de aml-0042 con qwen2.5:7b consumió
+    ~15.8k tokens. 30k deja margen para una deliberación completa; bajarlo
+    muestra el control de admisión en acción.
+    """
+    return int(os.getenv("PRESUPUESTO_TOKENS_CASO", "30000"))
+
+
 def admin_visible() -> bool:
     """En el stand se oculta la página Admin con MOSTRAR_ADMIN=0."""
     return os.getenv("MOSTRAR_ADMIN", "1") != "0"
