@@ -1,0 +1,104 @@
+# Servidor de modelos para desarrollo: Ollama en CPU, dentro del cluster.
+#
+# Ollama en CPU es inferencia real, no simulación (CLAUDE.md, sección 8).
+# En dCloud este archivo no se usa: LLM_LOCAL_URL y LLM_GRANDE_URL del
+# ConfigMap `endpoints` apuntarán a vLLM.
+#
+# Aplicar (después de endpoints.yaml):
+#   kubectl apply -f deploy/k8s/ollama.yaml
+#   kubectl apply -f deploy/k8s/ollama-descarga.yaml   # baja los modelos
+#
+# Por qué no es un pod suelto: el modelo pesa ~2 GB y no queremos bajarlo
+# otra vez cada vez que el pod se reinicia. Por eso vive en un volumen
+# persistente (PVC), no dentro del contenedor.
+
+# ─── Volumen para los modelos ────────────────────────────────────────────────
+# Un PersistentVolumeClaim es "pedir disco" al cluster. En kind lo atiende el
+# local-path-provisioner, que crea una carpeta en el nodo. Sobrevive a
+# reinicios y a borrar el pod; se pierde solo si borras el PVC o el cluster.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-modelos
+  namespace: agentes
+spec:
+  accessModes: ["ReadWriteOnce"]   # lo monta un solo nodo a la vez
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: agentes
+spec:
+  replicas: 1
+  # Recreate: al actualizar, primero se apaga el pod viejo y luego arranca el
+  # nuevo. Hace falta porque el volumen es ReadWriteOnce y no lo pueden
+  # montar dos pods al mismo tiempo.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+        # rol "modelo", no "agente": las políticas de Cilium van a distinguir
+        # entre los componentes que razonan y el servidor que ejecuta pesos.
+        rol: modelo
+    spec:
+      containers:
+        - name: ollama
+          # Versión fija. No usar :latest: el día del evento debe correr
+          # exactamente lo mismo que se ensayó.
+          image: ollama/ollama:0.34.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+          env:
+            - name: OLLAMA_HOST          # escuchar en todas las interfaces del pod
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_MODELS        # dónde guarda los pesos: el volumen
+              value: /modelos
+            - name: OLLAMA_KEEP_ALIVE    # mantener el modelo cargado entre llamadas
+              value: "30m"
+            - name: OLLAMA_MAX_LOADED_MODELS  # la VM tiene 7 GB de RAM: uno a la vez
+              value: "1"
+          resources:
+            requests:
+              cpu: "2"
+              memory: 3Gi
+            limits:
+              memory: 5Gi
+          # Kubernetes no le manda tráfico hasta que responde en "/".
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            periodSeconds: 5
+          volumeMounts:
+            - name: modelos
+              mountPath: /modelos
+      volumes:
+        - name: modelos
+          persistentVolumeClaim:
+            claimName: ollama-modelos
+
+---
+# Nombre estable dentro del cluster: los agentes llaman a http://ollama:11434
+# (es el valor de LLM_LOCAL_URL / LLM_GRANDE_URL en endpoints.yaml).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: agentes
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434

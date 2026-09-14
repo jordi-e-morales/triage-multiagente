@@ -1,0 +1,50 @@
+# Job que le pide al servidor Ollama que descargue los modelos configurados.
+#
+# Un Job es un pod que corre una tarea y termina (a diferencia de un
+# Deployment, que se mantiene vivo). Este usa el cliente `ollama` para decirle
+# al SERVIDOR que haga el pull: los pesos quedan en el volumen del servidor,
+# no en este pod.
+#
+# Los nombres de modelo salen del ConfigMap `endpoints`, igual que para los
+# agentes: si cambias LLM_LOCAL_MODELO, este Job baja el nuevo.
+#
+# Para volver a correrlo (por ejemplo, tras cambiar un modelo):
+#   kubectl -n agentes delete job ollama-descarga
+#   kubectl apply -f deploy/k8s/ollama-descarga.yaml
+#   kubectl -n agentes logs -f job/ollama-descarga
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-descarga
+  namespace: agentes
+spec:
+  # Si el servidor todavía no está listo, el pull falla y Kubernetes
+  # reintenta con espera creciente. 6 intentos cubren varios minutos.
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: ollama-descarga
+        rol: operacion
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: ollama/ollama:0.34.0   # misma imagen: trae el cliente
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: endpoints
+          env:
+            - name: OLLAMA_HOST        # a qué servidor hablarle
+              value: "http://ollama:11434"
+          command: ["/bin/sh", "-c"]
+          # Si local y grande son el mismo modelo, el segundo pull no baja nada.
+          args:
+            - |
+              set -e
+              echo "Bajando $LLM_LOCAL_MODELO"
+              ollama pull "$LLM_LOCAL_MODELO"
+              echo "Bajando $LLM_GRANDE_MODELO"
+              ollama pull "$LLM_GRANDE_MODELO"
+              ollama list

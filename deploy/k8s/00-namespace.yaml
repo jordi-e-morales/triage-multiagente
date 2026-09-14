@@ -1,0 +1,8 @@
+# Namespace donde viven los cinco componentes y el servidor de modelos.
+# Ya lo crea lab/01-dos-agentes.yaml en ConnectLatam26; se repite aquí para
+# que `kubectl apply -f deploy/k8s/` funcione solo en un cluster nuevo
+# (en dCloud). Aplicarlo dos veces no hace daño.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentes
