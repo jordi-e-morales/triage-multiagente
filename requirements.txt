@@ -14,3 +14,6 @@ sqlalchemy>=2.0.0
 pandas>=2.2.0
 numpy>=1.26.0
 requests>=2.31.0
+# Servicios HTTP de los cinco componentes (Fase 1). Versiones fijas.
+fastapi==0.115.12
+uvicorn==0.34.2
