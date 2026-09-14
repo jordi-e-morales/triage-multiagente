@@ -32,11 +32,14 @@ data:
 
   # Modelos. En el lab local los dos apuntan al mismo contenedor de Ollama.
   # En dCloud: LLM_LOCAL_* -> vLLM con el 7B, LLM_GRANDE_* -> vLLM con el 32B.
+  # Se usa qwen2.5:7b: con el 3B el debate no sostenía los roles (el Defensor
+  # terminaba argumentando que había que escalar). 7B es además el tamaño que
+  # el plan asigna al Enriquecedor en dCloud.
   LLM_LOCAL_URL: "http://ollama:11434"
-  LLM_LOCAL_MODELO: "qwen2.5:3b"
+  LLM_LOCAL_MODELO: "qwen2.5:7b"
   LLM_GRANDE_URL: "http://ollama:11434"
-  LLM_GRANDE_MODELO: "qwen2.5:3b"
-  # Ventana de contexto pedida en cada llamada. qwen2.5:3b admite hasta 32768.
+  LLM_GRANDE_MODELO: "qwen2.5:7b"
+  # Ventana de contexto pedida en cada llamada. qwen2.5:7b admite hasta 32768.
   # Más ventana = más RAM para la caché; 8192 alcanza para los expedientes
   # chicos de desarrollo. Si un prompt no cabe, la llamada falla (no recorta).
   LLM_NUM_CTX: "8192"

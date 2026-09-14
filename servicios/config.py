@@ -79,10 +79,10 @@ def modelos() -> list[Modelo]:
     return [
         Modelo("local", "enriquecedor",
                "LLM_LOCAL_URL", os.getenv("LLM_LOCAL_URL", "http://ollama:11434"),
-               "LLM_LOCAL_MODELO", os.getenv("LLM_LOCAL_MODELO", "qwen2.5:3b"), num_ctx),
+               "LLM_LOCAL_MODELO", os.getenv("LLM_LOCAL_MODELO", "qwen2.5:7b"), num_ctx),
         Modelo("grande", "investigador, defensor, arbitro",
                "LLM_GRANDE_URL", os.getenv("LLM_GRANDE_URL", "http://ollama:11434"),
-               "LLM_GRANDE_MODELO", os.getenv("LLM_GRANDE_MODELO", "qwen2.5:3b"), num_ctx),
+               "LLM_GRANDE_MODELO", os.getenv("LLM_GRANDE_MODELO", "qwen2.5:7b"), num_ctx),
     ]
 
 

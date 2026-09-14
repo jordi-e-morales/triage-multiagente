@@ -66,14 +66,18 @@ spec:
               value: /modelos
             - name: OLLAMA_KEEP_ALIVE    # mantener el modelo cargado entre llamadas
               value: "30m"
-            - name: OLLAMA_MAX_LOADED_MODELS  # la VM tiene 7 GB de RAM: uno a la vez
+            - name: OLLAMA_MAX_LOADED_MODELS  # un modelo en memoria a la vez
               value: "1"
+          # Dimensionado para qwen2.5:7b en CPU: ~4.7 GB de pesos + caché de
+          # 8k tokens + buffers = ~6 GB. La VM tiene 12 vCPU y 14 GB.
+          # Sin límite de CPU a propósito: en CPU la inferencia usa todos los
+          # núcleos disponibles y un límite solo la haría más lenta.
           resources:
             requests:
-              cpu: "2"
-              memory: 3Gi
+              cpu: "8"
+              memory: 6Gi
             limits:
-              memory: 5Gi
+              memory: 9Gi
           # Kubernetes no le manda tráfico hasta que responde en "/".
           readinessProbe:
             httpGet:
