@@ -65,7 +65,7 @@ class ContextoV1(_Mensaje):
     sujeto ni el texto externo tal cual, solo hechos con su procedencia.
     """
     schema_id: Literal["contexto.v1"] = "contexto.v1"
-    resumen: str = Field(max_length=450, description="dos oraciones: qué disparó la alerta y qué muestra la evidencia")
+    resumen: str = Field(max_length=600, description="dos oraciones: qué disparó la alerta y qué muestra la evidencia")
     # El tope real por expediente (número de piezas de evidencia) se fija en
     # esquema_para_llm; aquí solo un límite de cordura.
     hechos: list[HechoV1] = Field(min_length=1, max_length=60)
