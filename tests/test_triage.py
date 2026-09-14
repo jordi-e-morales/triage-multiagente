@@ -37,13 +37,25 @@ def doble(*respuestas: dict):
     return llamar
 
 
-CONTEXTO_OK = {
+def con_cobertura(ctx: dict) -> dict:
+    """Agrega un hecho de relleno para la evidencia que `ctx` no cubre.
+
+    El Enriquecedor exige que toda la evidencia tenga un hecho; los datos de
+    prueba que se centran en otra cosa necesitan cumplirlo también.
+    """
+    cubiertos = {i for h in ctx["hechos"] for i in h["evidencia"]}
+    faltan = [e.id for e in CASO.evidence if e.id not in cubiertos]
+    extra = [{"hecho": f"Relleno de {i}", "evidencia": [i]} for i in faltan]
+    return {**ctx, "hechos": ctx["hechos"] + extra}
+
+
+CONTEXTO_OK = con_cobertura({
     "resumen": "Refacciones Tepalca SA de CV hizo 18 depósitos bajo umbral.",
     "hechos": [
         {"hecho": "Refacciones Tepalca depositó 48,200 MXN", "evidencia": ["ev-001"]},
         {"hecho": "Los 18 depósitos suman 862,300 MXN", "evidencia": ["ev-004"]},
     ],
-}
+})
 
 ARGUMENTO_OK = {
     "tesis": "Patrón de fraccionamiento", "confianza": "media",
@@ -64,6 +76,23 @@ class TestEsquemaParaLLM(unittest.TestCase):
         punto = e["properties"]["puntos_decisivos"]["items"]
         self.assertIn("politica", punto["required"])
 
+    def test_citas_restringidas_a_ids_del_expediente(self):
+        e = esquema_para_llm(ArgumentoV1, ["ev-002", "ev-001"], ["pol-1"])
+        punto = e["properties"]["puntos"]["items"]["properties"]
+        self.assertEqual(punto["evidencia"]["items"]["enum"], ["ev-001", "ev-002"])
+        self.assertEqual(punto["politica"]["items"]["enum"], ["pol-1"])
+        self.assertEqual(punto["afirmacion"]["maxLength"], 320)
+        self.assertEqual(punto["evidencia"]["maxItems"], 4)
+
+    def test_tope_de_hechos_por_expediente(self):
+        e = esquema_para_llm(ContextoV1, max_items={"hechos": 8})
+        self.assertEqual(e["properties"]["hechos"]["maxItems"], 8)
+
+    def test_citas_repetidas_se_normalizan(self):
+        p = ArgumentoV1.model_validate({**ARGUMENTO_OK, "ronda": 1,
+            "puntos": [{"afirmacion": "a", "evidencia": ["ev-001", "ev-002", "ev-001"], "politica": []}]})
+        self.assertEqual(p.puntos[0].evidencia, ["ev-001", "ev-002"])
+
     def test_contexto_no_expone_origen(self):
         hecho = esquema_para_llm(ContextoV1)["properties"]["hechos"]["items"]
         self.assertNotIn("origen", hecho["properties"])
@@ -76,13 +105,13 @@ class TestEnriquecedor(unittest.TestCase):
         self.assertNotIn("Tepalca", texto)
         self.assertIn("SUJ-88210", texto)
         # "refacciones" como palabra común no se toca.
-        r2 = triage.enriquecer(CASO, llamar=doble({
+        r2 = triage.enriquecer(CASO, llamar=doble(con_cobertura({
             "resumen": "Tepalca vende refacciones.",
-            "hechos": [{"hecho": "Factura por refacciones para flotilla", "evidencia": ["ev-006"]}]}))
+            "hechos": [{"hecho": "Factura por refacciones para flotilla", "evidencia": ["ev-006"]}]})))
         self.assertEqual(r2.mensaje.resumen, "SUJ-88210 vende refacciones.")
         self.assertIn("refacciones para flotilla", r2.mensaje.hechos[0].hecho)
         # ev-001 es externa, ev-004 interna: lo decide el código.
-        self.assertEqual([h.origen for h in r.mensaje.hechos], ["external", "internal"])
+        self.assertEqual([h.origen for h in r.mensaje.hechos[:2]], ["external", "internal"])
 
     def test_el_enriquecedor_usa_el_modelo_local(self):
         llamar = doble(CONTEXTO_OK)
@@ -90,11 +119,27 @@ class TestEnriquecedor(unittest.TestCase):
             triage.enriquecer(CASO, llamar=llamar)
         self.assertEqual(llamar.llamadas[0]["model"], "local-7b")
 
+    def test_exige_cobertura_de_toda_la_evidencia(self):
+        # Primer intento omite evidencia -> se reintenta pidiendo lo que falta.
+        parcial = {"resumen": "x", "hechos": [{"hecho": "h", "evidencia": ["ev-001"]}]}
+        llamar = doble(parcial, CONTEXTO_OK)
+        r = triage.enriquecer(CASO, llamar=llamar)
+        self.assertEqual(r.intentos, 2)
+        self.assertIn("ev-008", llamar.llamadas[1]["mensajes"][-1]["content"])
+
     def test_reintenta_si_la_respuesta_no_valida_y_suma_tokens(self):
         malo = {"resumen": "x", "hechos": []}  # hechos vacío: no valida
         r = triage.enriquecer(CASO, llamar=doble(malo, CONTEXTO_OK))
         self.assertEqual(r.intentos, 2)
         self.assertEqual(r.metricas["prompt_tokens"], 200)
+
+
+class TestRespuestaTruncada(unittest.TestCase):
+    def test_error_claro_si_se_acaban_los_tokens(self):
+        def llamar(mensajes, esquema, **kw):
+            return {"texto": '{"resumen": "cortado', "truncada": True}
+        with self.assertRaisesRegex(RuntimeError, "max_tokens"):
+            triage.enriquecer(CASO, llamar=llamar)
 
 
 class TestDebate(unittest.TestCase):

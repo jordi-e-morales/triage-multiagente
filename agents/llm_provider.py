@@ -211,6 +211,9 @@ def call_ollama_estructurado(
         "prefill_ms": int(r.get("prompt_eval_duration", 0) * ns_a_ms),
         "generacion_ms": int(r.get("eval_duration", 0) * ns_a_ms),
         "total_ms": int(r.get("total_duration", 0) * ns_a_ms),
+        # done_reason == "length": se acabó max_tokens antes de terminar; el
+        # JSON viene cortado. Mejor decirlo así que como "JSON inválido".
+        "truncada": r.get("done_reason") == "length",
     }
 
     # Si el prompt ocupó la ventana casi completa, lo más probable es que
