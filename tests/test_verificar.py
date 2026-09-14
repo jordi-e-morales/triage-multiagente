@@ -47,7 +47,7 @@ class TestConfig(unittest.TestCase):
         variables = [s.variable for s in config.servicios()]
         for m in config.modelos():
             variables += [m.variable_url, m.variable_modelo]
-        for v in variables + ["MOSTRAR_ADMIN"]:
+        for v in variables + ["MOSTRAR_ADMIN", "LLM_NUM_CTX"]:
             self.assertIn(f"{v}:", yaml_txt, f"falta {v} en endpoints.yaml")
 
 

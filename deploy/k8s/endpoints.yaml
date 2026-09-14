@@ -36,6 +36,10 @@ data:
   LLM_LOCAL_MODELO: "qwen2.5:3b"
   LLM_GRANDE_URL: "http://ollama:11434"
   LLM_GRANDE_MODELO: "qwen2.5:3b"
+  # Ventana de contexto pedida en cada llamada. qwen2.5:3b admite hasta 32768.
+  # Más ventana = más RAM para la caché; 8192 alcanza para los expedientes
+  # chicos de desarrollo. Si un prompt no cabe, la llamada falla (no recorta).
+  LLM_NUM_CTX: "8192"
 
   # "0" oculta la página Admin (presets del stand).
   MOSTRAR_ADMIN: "1"

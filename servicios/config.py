@@ -35,6 +35,9 @@ class Modelo:
     url: str
     variable_modelo: str
     modelo: str
+    # Ventana de contexto que se pide en cada llamada. Una sola variable para
+    # los dos modelos: en desarrollo es el mismo modelo.
+    num_ctx: int = 8192
 
 
 # Nombres de Service de Kubernetes dentro del namespace. Por defecto todos
@@ -72,14 +75,20 @@ def modelos() -> list[Modelo]:
     por URL es lo que permite que Cilium impida al Enriquecedor llegar al
     grande.
     """
+    num_ctx = int(os.getenv("LLM_NUM_CTX", "8192"))
     return [
         Modelo("local", "enriquecedor",
                "LLM_LOCAL_URL", os.getenv("LLM_LOCAL_URL", "http://ollama:11434"),
-               "LLM_LOCAL_MODELO", os.getenv("LLM_LOCAL_MODELO", "qwen2.5:3b")),
+               "LLM_LOCAL_MODELO", os.getenv("LLM_LOCAL_MODELO", "qwen2.5:3b"), num_ctx),
         Modelo("grande", "investigador, defensor, arbitro",
                "LLM_GRANDE_URL", os.getenv("LLM_GRANDE_URL", "http://ollama:11434"),
-               "LLM_GRANDE_MODELO", os.getenv("LLM_GRANDE_MODELO", "qwen2.5:3b")),
+               "LLM_GRANDE_MODELO", os.getenv("LLM_GRANDE_MODELO", "qwen2.5:3b"), num_ctx),
     ]
+
+
+def modelo(rol: str) -> Modelo:
+    """modelo('local') o modelo('grande')."""
+    return next(m for m in modelos() if m.rol == rol)
 
 
 def admin_visible() -> bool:

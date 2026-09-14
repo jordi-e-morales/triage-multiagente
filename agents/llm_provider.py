@@ -150,6 +150,79 @@ def call_llm(
         raise ValueError(f"Unknown provider: {provider}")
 
 
+# ─── Ollama con esquema estricto y medición (demo de triage) ──────────────────
+
+class ContextoInsuficiente(RuntimeError):
+    """El prompt no cabe en la ventana de contexto configurada.
+
+    Ollama, si el prompt excede `num_ctx`, lo recorta por el principio SIN
+    avisar: el agente respondería sin haber leído parte del expediente. Aquí
+    preferimos fallar ruidosamente (y fallar al preparar, no en escena).
+    """
+
+
+def call_ollama_estructurado(
+    messages: list[dict],
+    schema: dict,
+    model: str,
+    base_url: str,
+    num_ctx: int,
+    temperature: float = 0.2,
+    max_tokens: int = 800,
+    timeout_s: int = 600,
+) -> dict:
+    """
+    Llama a Ollama exigiendo que la salida cumpla `schema` (JSON Schema).
+
+    Diferencia con `_call_ollama`: allí se pide `format: "json"`, que solo
+    garantiza JSON válido, no las claves correctas (en la prueba del cluster el
+    modelo escribió "component" en vez de "componente"). Pasar el esquema
+    completo hace que Ollama restrinja la generación a esa estructura.
+
+    Devuelve el texto y las métricas que reporta Ollama, que son las que usa el
+    presupuesto de tokens y la UI:
+        texto, prompt_tokens, completion_tokens,
+        carga_ms (subir el modelo a memoria), prefill_ms, generacion_ms, total_ms
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "format": schema,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_tokens,
+            # Ventana de contexto explícita. Si no se fija, Ollama usa un
+            # valor por omisión chico y recorta sin avisar.
+            "num_ctx": num_ctx,
+        },
+    }
+    resp = requests.post(f"{base_url.rstrip('/')}/api/chat", json=payload, timeout=timeout_s)
+    resp.raise_for_status()
+    r = resp.json()
+
+    ns_a_ms = 1e-6
+    prompt_tokens = int(r.get("prompt_eval_count", 0))
+    resultado = {
+        "texto": r["message"]["content"],
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": int(r.get("eval_count", 0)),
+        "carga_ms": int(r.get("load_duration", 0) * ns_a_ms),
+        "prefill_ms": int(r.get("prompt_eval_duration", 0) * ns_a_ms),
+        "generacion_ms": int(r.get("eval_duration", 0) * ns_a_ms),
+        "total_ms": int(r.get("total_duration", 0) * ns_a_ms),
+    }
+
+    # Si el prompt ocupó la ventana casi completa, lo más probable es que
+    # Ollama haya recortado. No hay un campo explícito que lo diga, así que se
+    # usa este margen conservador.
+    if prompt_tokens + max_tokens > num_ctx:
+        raise ContextoInsuficiente(
+            f"prompt de {prompt_tokens} tokens + {max_tokens} de respuesta no caben en num_ctx={num_ctx}"
+        )
+    return resultado
+
+
 def parse_json_response(text: str) -> dict:
     """Extract JSON from LLM response, stripping markdown fences if present."""
     text = text.strip()
