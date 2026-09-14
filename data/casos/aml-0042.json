@@ -1,0 +1,106 @@
+{
+  "case_id": "aml-0042",
+  "domain": "aml",
+  "trigger": {
+    "rule_id": "STRUCT-03",
+    "rule_name": "Depósitos recurrentes bajo umbral",
+    "fired_at": "2026-08-14T09:12:00Z",
+    "severity": "media",
+    "summary": "18 depósitos en efectivo bajo el umbral en 11 días"
+  },
+  "subject": {
+    "id": "SUJ-88210",
+    "display_name": "Refacciones Tepalca SA de CV (ficticio)",
+    "declared_context": "Comercio de autopartes, ingresos esperados 40k-80k MXN/mes",
+    "attributes": {
+      "antiguedad_meses": 71,
+      "sucursales_de_deposito": 3
+    }
+  },
+  "evidence": [
+    {
+      "id": "ev-001",
+      "ts": "2026-08-03T11:04:00Z",
+      "kind": "movimiento",
+      "summary": "Depósito en efectivo 48,200 MXN, sucursal Centro",
+      "free_text": "PAGO PROVEEDOR CONSIGNA AGO",
+      "source_trust": "external"
+    },
+    {
+      "id": "ev-002",
+      "ts": "2026-08-04T16:40:00Z",
+      "kind": "movimiento",
+      "summary": "Depósito en efectivo 47,900 MXN, sucursal Norte",
+      "free_text": "VENTA MOSTRADOR TALLERES",
+      "source_trust": "external"
+    },
+    {
+      "id": "ev-003",
+      "ts": "2026-08-06T10:15:00Z",
+      "kind": "movimiento",
+      "summary": "Depósito en efectivo 49,500 MXN, sucursal Centro",
+      "free_text": "CONSIGNA FLOTILLA",
+      "source_trust": "external"
+    },
+    {
+      "id": "ev-004",
+      "ts": "2026-08-13T12:30:00Z",
+      "kind": "resumen_interno",
+      "summary": "Los 18 depósitos suman 862,300 MXN en 11 días, en 3 sucursales distintas; todos entre 45,000 y 49,900 MXN",
+      "source_trust": "internal"
+    },
+    {
+      "id": "ev-005",
+      "ts": "2026-08-13T12:31:00Z",
+      "kind": "resumen_interno",
+      "summary": "Mismo periodo del año anterior: 6 depósitos en efectivo por 131,000 MXN en total",
+      "source_trust": "internal"
+    },
+    {
+      "id": "ev-006",
+      "ts": "2026-07-22T09:00:00Z",
+      "kind": "documento",
+      "summary": "Comprobante fiscal emitido por el sujeto a Transportes Arcoíris del Bajío (ficticio) por 910,000 MXN, concepto: refacciones para flotilla",
+      "free_text": "Pago en parcialidades en efectivo conforme a contrato de suministro, entregas semanales en patio de Celaya.",
+      "source_trust": "external"
+    },
+    {
+      "id": "ev-007",
+      "ts": "2026-08-13T12:35:00Z",
+      "kind": "resumen_interno",
+      "summary": "Transportes Arcoíris del Bajío no es cliente de la institución; no hay información interna sobre ese tercero",
+      "source_trust": "internal"
+    },
+    {
+      "id": "ev-008",
+      "ts": "2026-08-13T12:40:00Z",
+      "kind": "resumen_interno",
+      "summary": "No hay salidas por transferencia fuera de lo habitual en el periodo; los pagos a proveedores siguen su patrón mensual",
+      "source_trust": "internal"
+    }
+  ],
+  "history": [
+    {
+      "ts": "2025-03-02T00:00:00Z",
+      "summary": "Alerta STRUCT-03 por 7 depósitos en efectivo en temporada alta",
+      "outcome": "Cerrada como falso positivo: ventas de temporada documentadas"
+    }
+  ],
+  "policy_excerpts": [
+    {
+      "id": "pol-2.1",
+      "title": "Fraccionamiento",
+      "text": "Se considera indicio de fraccionamiento la concentración de operaciones de efectivo por importes similares y cercanos al umbral de reporte, en un periodo corto y en distintas sucursales, cuando no exista justificación económica documentada."
+    },
+    {
+      "id": "pol-3.4",
+      "title": "Justificación documental",
+      "text": "Un comprobante fiscal emitido por el propio sujeto no acredita por sí solo el origen de los recursos si la contraparte no puede corroborarse con información independiente."
+    },
+    {
+      "id": "pol-5.2",
+      "title": "Perfil transaccional",
+      "text": "Un volumen superior a tres veces el ingreso esperado declarado obliga a solicitar actualización del perfil antes de cerrar la alerta como falso positivo."
+    }
+  ]
+}
