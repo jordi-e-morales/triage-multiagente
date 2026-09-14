@@ -1,0 +1,12 @@
+# Fuera del contexto de build: no hace falta en la imagen y lo haría lento.
+.git
+**/__pycache__
+*.pyc
+.venv
+tests/
+herramientas/
+pages/
+ml/
+data/
+deploy/
+*.md

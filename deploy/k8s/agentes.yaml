@@ -1,0 +1,313 @@
+# Los seis componentes: un Deployment y un Service por cada uno.
+#
+# Todos usan la misma imagen (triage-agentes) y cambian solo COMPONENTE.
+# Las etiquetas son lo que seleccionarán las políticas de Cilium:
+#   app: <nombre>        identifica a cada componente
+#   rol: agente          orquestador, enriquecedor, investigador, defensor, arbitro
+#   rol: registro        el sistema de registro (NO es agente)
+#
+# Aplicar (después de endpoints.yaml y con la imagen cargada en kind):
+#   kubectl apply -f deploy/k8s/agentes.yaml
+#
+# Cada pod es un proceso separado a propósito: sin eso las llamadas entre
+# agentes serían de memoria y no habría nada que inspeccionar ni bloquear.
+
+# ─── Orquestador ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orquestador
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orquestador
+  template:
+    metadata:
+      labels:
+        app: orquestador
+        rol: agente
+    spec:
+      # No montar el token de la API de Kubernetes: ningún componente
+      # necesita hablar con el cluster, y un agente comprometido no debe poder.
+      automountServiceAccountToken: false
+      containers:
+        - name: orquestador
+          image: triage-agentes:0.1.0
+          # Never: la imagen se carga en kind con `kind load`; no existe en
+          # ningún registro remoto y no queremos que el nodo intente bajarla.
+          imagePullPolicy: Never
+          env:
+            - name: COMPONENTE
+              value: orquestador
+          # Todas las URLs, modelos, presupuesto y timeouts vienen del ConfigMap.
+          envFrom:
+            - configMapRef:
+                name: endpoints
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orquestador
+  namespace: agentes
+spec:
+  selector: {app: orquestador}
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+# ─── Enriquecedor ────────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enriquecedor
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: enriquecedor}
+  template:
+    metadata:
+      labels: {app: enriquecedor, rol: agente}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: enriquecedor
+          image: triage-agentes:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: enriquecedor}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enriquecedor
+  namespace: agentes
+spec:
+  selector: {app: enriquecedor}
+  ports:
+    - {port: 8000, targetPort: 8000}
+
+# ─── Investigador ────────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: investigador
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: investigador}
+  template:
+    metadata:
+      labels: {app: investigador, rol: agente}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: investigador
+          image: triage-agentes:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: investigador}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: investigador
+  namespace: agentes
+spec:
+  selector: {app: investigador}
+  ports:
+    - {port: 8000, targetPort: 8000}
+
+# ─── Defensor ────────────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defensor
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: defensor}
+  template:
+    metadata:
+      labels: {app: defensor, rol: agente}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: defensor
+          image: triage-agentes:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: defensor}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: defensor
+  namespace: agentes
+spec:
+  selector: {app: defensor}
+  ports:
+    - {port: 8000, targetPort: 8000}
+
+# ─── Árbitro ─────────────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arbitro
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: arbitro}
+  template:
+    metadata:
+      labels: {app: arbitro, rol: agente}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: arbitro
+          image: triage-agentes:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: arbitro}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: arbitro
+  namespace: agentes
+spec:
+  selector: {app: arbitro}
+  ports:
+    - {port: 8000, targetPort: 8000}
+
+# ─── Registro (no es agente) ─────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registro
+  namespace: agentes
+spec:
+  # Una sola réplica: el registro vive en memoria. Con dos, cada pod tendría
+  # su propia copia y las lecturas no coincidirían.
+  replicas: 1
+  selector:
+    matchLabels: {app: registro}
+  template:
+    metadata:
+      labels: {app: registro, rol: registro}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: registro
+          image: triage-agentes:0.1.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: registro}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registro
+  namespace: agentes
+spec:
+  selector: {app: registro}
+  ports:
+    - {port: 8000, targetPort: 8000}

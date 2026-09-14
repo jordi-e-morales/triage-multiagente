@@ -1,0 +1,7 @@
+# Dependencias de la imagen de los componentes (servicios/).
+# Subconjunto de requirements.txt: sin Streamlit, sin torch ni xgboost.
+# Versiones exactas: son las que pasaron las pruebas.
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.11.4
+requests==2.31.0
