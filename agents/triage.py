@@ -28,7 +28,7 @@ from pydantic import BaseModel, ValidationError
 from agents.llm_provider import call_ollama_estructurado
 from schemas.caso import Case
 from schemas.deliberacion import (
-    ArgumentoV1, ContextoV1, DisposicionV1, ObjecionV1, citas_invalidas, esquema_para_llm,
+    ArgumentoV1, ContextoV1, DisposicionV1, ObjecionV1, PuntoObjecion, citas_invalidas, esquema_para_llm,
 )
 from servicios.config import Modelo, modelo
 
@@ -72,7 +72,7 @@ Tu trabajo: convertir la evidencia en hechos breves y neutrales para el resto de
 
 Reglas:
 - Reescribe cada pieza de evidencia como una oración propia. NO copies la línea del expediente: sin ids, sin marcas [INTERNO]/[EXTERNO], sin timestamps completos (usa la fecha corta, "3 ago").
-- Puedes combinar en un hecho varias piezas que dicen lo mismo (por ejemplo, depósitos parecidos).
+- Puedes combinar en un hecho varias piezas que dicen lo mismo (por ejemplo, depósitos parecidos), pero SOLO si todas son [INTERNO] o todas son [EXTERNO]. Nunca mezcles procedencias en un hecho.
 - Cada hecho conserva cifras, lugares y contrapartes, y cita en "evidencia" los ids de donde sale.
 - Si la pieza tiene "Texto libre", el hecho DEBE incluir qué dice ese texto, entre comillas, atribuido a quien lo escribió.
 - Lo que afirma un documento o texto de terceros se reporta como afirmación ("el comprobante indica...", "según el texto..."), nunca como hecho comprobado. Respeta quién emite y quién recibe.
@@ -121,6 +121,7 @@ Opciones de "recomendacion":
 - "escalar": el riesgo está sustentado y la explicación legítima no alcanza.
 - "cerrar_falso_positivo": la explicación legítima está sustentada por evidencia interna.
 - "pedir_informacion": ninguna postura está sustentada; falta un dato concreto que la política exige.
+Si una política citada exige un paso antes de cerrar (por ejemplo, actualizar un perfil), no recomiendes "cerrar_falso_positivo" sin ese paso.
 
 {_REGLAS_DEBATE}
 - "prevalece": qué postura quedó mejor sustentada ("investigador", "defensor" o "ninguno").
@@ -369,20 +370,93 @@ def evidencia_sin_hecho(contexto: ContextoV1, caso: Case) -> list[str]:
     return [e.id for e in caso.evidence if e.id not in citados]
 
 
+def hechos_que_mezclan_procedencia(contexto: ContextoV1, caso: Case) -> list[list[str]]:
+    """
+    Citas de los hechos que combinan evidencia interna y externa.
+
+    En la corrida por pods el Enriquecedor juntó ev-004 (resumen interno del
+    sistema) con ev-001..003 (glosas de terceros) en un solo hecho. Como un
+    hecho que cita algo externo se marca [EXTERNO] entero, el dato interno más
+    fuerte quedó como "no corroborado". La procedencia es la base del Demo 2:
+    no puede diluirse al resumir.
+    """
+    confianza = {e.id: e.source_trust for e in caso.evidence}
+    return [h.evidencia for h in contexto.hechos
+            if len({confianza.get(i) for i in h.evidencia if i in confianza}) > 1]
+
+
+# Palabras que acompañan a una cita dentro de un paréntesis: "(evidencia ev-004 y pol-5.2)".
+_CONECTORES_DE_CITA = re.compile(r"\b(evidencias?|pol[ií]ticas?|seg[uú]n|ver|y|e)\b|[,;:\s]", re.IGNORECASE)
+_MARCAS = re.compile(r"\s*\[(?:INTERNO|EXTERNO)\]", re.IGNORECASE)
+
+
+def quitar_citas_del_texto(texto: str, caso: Case) -> str:
+    """
+    Quita del texto los paréntesis que solo contienen ids del expediente y las
+    marcas [INTERNO]/[EXTERNO]. Las citas ya van en sus campos; repetidas en
+    el texto ensucian lo que se proyecta. El prompt lo pide y el modelo no
+    siempre obedece, así que se limpia en código (determinista).
+    """
+    ids = sorted(caso.evidence_ids() | caso.policy_ids(), key=len, reverse=True)
+    if not ids:
+        return texto
+    patron_ids = re.compile("|".join(re.escape(i) for i in ids))
+
+    def reemplazar(m: re.Match) -> str:
+        dentro = m.group(1)
+        if not patron_ids.search(dentro):
+            return m.group(0)                      # paréntesis normal: se queda
+        resto = _CONECTORES_DE_CITA.sub("", patron_ids.sub("", dentro))
+        return "" if not resto else m.group(0)     # solo citas: se quita
+
+    limpio = re.sub(r"\s*\(([^()]*)\)", reemplazar, texto)
+    limpio = _MARCAS.sub("", limpio)
+    return re.sub(r"\s+([.,;:])", r"\1", limpio).strip()
+
+
+def _limpiar_textos(mensaje: BaseModel, caso: Case) -> BaseModel:
+    """Aplica quitar_citas_del_texto a todos los campos de texto de un mensaje."""
+    if isinstance(mensaje, ContextoV1):
+        mensaje.resumen = quitar_citas_del_texto(mensaje.resumen, caso)
+        for h in mensaje.hechos:
+            h.hecho = quitar_citas_del_texto(h.hecho, caso)
+        return mensaje
+    if isinstance(mensaje, DisposicionV1):
+        mensaje.fundamento = quitar_citas_del_texto(mensaje.fundamento, caso)
+        puntos = mensaje.puntos_decisivos
+    else:
+        mensaje.tesis = quitar_citas_del_texto(mensaje.tesis, caso)
+        puntos = mensaje.puntos
+    for p in puntos:
+        p.afirmacion = quitar_citas_del_texto(p.afirmacion, caso)
+        if isinstance(p, PuntoObjecion):
+            p.objeta = quitar_citas_del_texto(p.objeta, caso)
+    return mensaje
+
+
 def enriquecer(caso: Case, llamar: Llamar = call_ollama_estructurado) -> ResultadoAgente:
     usuario = f"Normaliza este expediente.\n\n{_renderizar_expediente_completo(caso)}"
 
-    # Control de cobertura: en la segunda corrida real el Enriquecedor omitió
-    # ev-006..ev-008, justo la evidencia que usa el Defensor. Si un agente
-    # resume, el código tiene que comprobar que no se perdió nada.
-    def cobertura(ctx: ContextoV1) -> str | None:
+    def validar_contexto(ctx: ContextoV1) -> str | None:
+        problemas = []
+        # Cobertura: en la segunda corrida real el Enriquecedor omitió
+        # ev-006..ev-008, justo la evidencia que usa el Defensor. Si un agente
+        # resume, el código tiene que comprobar que no se perdió nada.
         faltan = evidencia_sin_hecho(ctx, caso)
-        return f"Faltan hechos para esta evidencia: {', '.join(faltan)}. Incluye un hecho para cada una." if faltan else None
+        if faltan:
+            problemas.append(f"Faltan hechos para esta evidencia: {', '.join(faltan)}. Incluye un hecho para cada una.")
+        # Procedencia: un hecho no mezcla evidencia [INTERNO] y [EXTERNO].
+        mezclas = hechos_que_mezclan_procedencia(ctx, caso)
+        if mezclas:
+            grupos = "; ".join(", ".join(m) for m in mezclas)
+            problemas.append(f"Estos hechos mezclan evidencia [INTERNO] y [EXTERNO]: {grupos}. "
+                             "Sepáralos: un hecho solo puede citar evidencia de la misma procedencia.")
+        return " ".join(problemas) or None
 
     msg, met, n = _invocar("enriquecedor", caso, modelo("local"), SISTEMA_ENRIQUECEDOR, usuario,
                            ContextoV1, {}, temperatura=0.1, max_tokens=1400, llamar=llamar,
-                           max_items={"hechos": len(caso.evidence)}, validar_extra=cobertura)
-    msg = redactar_sujeto(aplicar_procedencia(msg, caso), caso)
+                           max_items={"hechos": len(caso.evidence)}, validar_extra=validar_contexto)
+    msg = redactar_sujeto(aplicar_procedencia(_limpiar_textos(msg, caso), caso), caso)
     return ResultadoAgente("enriquecedor", msg, met, n, citas_invalidas(msg, caso))
 
 
@@ -394,7 +468,7 @@ def argumentar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente
                f"{_renderizar_debate(historial)}\n\nRonda {ronda}. {tarea}")
     msg, met, n = _invocar("investigador", caso, modelo("grande"), SISTEMA_INVESTIGADOR, usuario,
                            ArgumentoV1, {"ronda": ronda}, temperatura=0.4, max_tokens=900, llamar=llamar)
-    return ResultadoAgente("investigador", msg, met, n, citas_invalidas(msg, caso))
+    return ResultadoAgente("investigador", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))
 
 
 def objetar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente], ronda: int,
@@ -405,7 +479,7 @@ def objetar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente], 
                f"{_renderizar_debate(historial)}\n\nRonda {ronda}. {tarea}")
     msg, met, n = _invocar("defensor", caso, modelo("grande"), SISTEMA_DEFENSOR, usuario,
                            ObjecionV1, {"ronda": ronda}, temperatura=0.4, max_tokens=900, llamar=llamar)
-    return ResultadoAgente("defensor", msg, met, n, citas_invalidas(msg, caso))
+    return ResultadoAgente("defensor", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))
 
 
 def deliberar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente],
@@ -417,4 +491,4 @@ def deliberar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente]
     msg, met, n = _invocar("arbitro", caso, modelo("grande"), SISTEMA_ARBITRO, usuario, DisposicionV1,
                            {"presupuesto_agotado": presupuesto_agotado},
                            temperatura=0.2, max_tokens=900, llamar=llamar)
-    return ResultadoAgente("arbitro", msg, met, n, citas_invalidas(msg, caso))
+    return ResultadoAgente("arbitro", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))

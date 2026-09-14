@@ -127,11 +127,47 @@ class TestEnriquecedor(unittest.TestCase):
         self.assertEqual(r.intentos, 2)
         self.assertIn("ev-008", llamar.llamadas[1]["mensajes"][-1]["content"])
 
+    def test_no_mezcla_evidencia_interna_y_externa(self):
+        # ev-001 externa + ev-004 interna en un hecho -> se reintenta pidiendo separarlos.
+        mezclado = con_cobertura({"resumen": "x", "hechos": [
+            {"hecho": "18 depósitos", "evidencia": ["ev-001", "ev-004"]}]})
+        llamar = doble(mezclado, CONTEXTO_OK)
+        r = triage.enriquecer(CASO, llamar=llamar)
+        self.assertEqual(r.intentos, 2)
+        self.assertIn("mezclan evidencia", llamar.llamadas[1]["mensajes"][-1]["content"])
+
     def test_reintenta_si_la_respuesta_no_valida_y_suma_tokens(self):
         malo = {"resumen": "x", "hechos": []}  # hechos vacío: no valida
         r = triage.enriquecer(CASO, llamar=doble(malo, CONTEXTO_OK))
         self.assertEqual(r.intentos, 2)
         self.assertEqual(r.metricas["prompt_tokens"], 200)
+
+
+class TestLimpiezaDeTexto(unittest.TestCase):
+    """Casos tomados de salidas reales del modelo en las corridas."""
+
+    def test_quita_parentesis_de_solo_citas(self):
+        casos = {
+            "sumando 862,300 MXN (ev-001, ev-002, ev-003, ev-004).": "sumando 862,300 MXN.",
+            "según evidencia ev-004 [INTERNO].": "según evidencia ev-004.",
+            "requiere actualización (evidencia ev-005, pol-5.2)": "requiere actualización",
+            "no aportan claridad (evidencia ev-001 y ev-003), aunque": "no aportan claridad, aunque",
+        }
+        for entrada, esperado in casos.items():
+            with self.subTest(entrada=entrada):
+                self.assertEqual(triage.quitar_citas_del_texto(entrada, CASO), esperado)
+
+    def test_conserva_parentesis_con_contenido(self):
+        texto = "ingresos esperados (40k-80k MXN/mes) y 18 depósitos (ev-004 y la glosa del cliente)"
+        self.assertEqual(triage.quitar_citas_del_texto(texto, CASO), texto)
+
+    def test_se_aplica_a_lo_que_devuelven_los_agentes(self):
+        arg = {**ARGUMENTO_OK, "tesis": "Escalar (ev-004)",
+               "puntos": [{"afirmacion": "18 depósitos (evidencia ev-004)", "evidencia": ["ev-004"], "politica": []}]}
+        ctx = triage.aplicar_procedencia(ContextoV1.model_validate(CONTEXTO_OK), CASO)
+        r = triage.argumentar(CASO, ctx, [], ronda=1, llamar=doble(arg))
+        self.assertEqual((r.mensaje.tesis, r.mensaje.puntos[0].afirmacion), ("Escalar", "18 depósitos"))
+        self.assertEqual(r.mensaje.puntos[0].evidencia, ["ev-004"])   # la cita sigue en su campo
 
 
 class TestRespuestaTruncada(unittest.TestCase):
