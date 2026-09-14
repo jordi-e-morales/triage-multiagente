@@ -69,7 +69,10 @@ spec:
             - name: OLLAMA_MAX_LOADED_MODELS  # un modelo en memoria a la vez
               value: "1"
           # Dimensionado para qwen2.5:7b en CPU: ~4.7 GB de pesos + caché de
-          # 8k tokens + buffers = ~6 GB. La VM tiene 12 vCPU y 14 GB.
+          # 8k tokens + buffers = ~6 GB. La VM tiene 12 vCPU y 10 GB; el
+          # cluster (Cilium, kind, los seis componentes y la UI) ocupa ~2.5 GB,
+          # así que el límite de 7Gi deja margen al nodo. Con 14 GB la VM
+          # reservaba demasiada RAM a Windows (32 GB) y la PC se congeló.
           # Sin límite de CPU a propósito: en CPU la inferencia usa todos los
           # núcleos disponibles y un límite solo la haría más lenta.
           resources:
@@ -77,7 +80,7 @@ spec:
               cpu: "8"
               memory: 6Gi
             limits:
-              memory: 9Gi
+              memory: 7Gi
           # Kubernetes no le manda tráfico hasta que responde en "/".
           readinessProbe:
             httpGet:

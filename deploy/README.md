@@ -46,7 +46,10 @@ lanzarlo.
 
 ## Medido en la VM de desarrollo
 
-VM con 12 vCPU y 14 GB, sin GPU (2026-09-13/14):
+VM con 12 vCPU sin GPU (2026-09-13/14). Se midió con 14 GB; desde el 14 de
+septiembre la VM usa 10 GB, porque con 14 GB reservados Windows se quedó sin
+memoria. Con 10 GB, el límite de Ollama es 7Gi (pendiente de probar una
+deliberación completa con ese límite).
 
 - Imagen `ollama/ollama:0.34.0`: 3.45 GB comprimida, ~5.5 GB en disco del nodo.
 - `qwen2.5:7b` (4.7 GB): el modelo de desarrollo. `qwen2.5:3b` no sostenía los
