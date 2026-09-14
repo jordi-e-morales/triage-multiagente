@@ -5,8 +5,8 @@
 # y arranca `uvicorn servicios.<COMPONENTE>:app` en el puerto 8000.
 #
 # Construir y cargar en kind (dentro de la VM):
-#   docker build -t triage-agentes:0.3.0 .
-#   kind load docker-image triage-agentes:0.3.0 --name agentes --nodes agentes-worker
+#   docker build -t triage-agentes:0.4.0 .
+#   kind load docker-image triage-agentes:0.4.0 --name agentes --nodes agentes-worker
 
 # Fijada por digest (amd64, publicada 2026-09-02): la imagen del evento debe ser
 # exactamente la que se ensayó, aunque el tag 3.13-slim se actualice.
@@ -27,6 +27,8 @@ RUN pip install --no-cache-dir -r requirements-servicios.txt
 COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/
 COPY schemas/ schemas/
 COPY servicios/ servicios/
+# protocols/: el observador traduce flujos de Hubble (kernel_watch).
+COPY protocols/ protocols/
 
 # Usuario sin privilegios. Menos permisos dentro del contenedor = menos que
 # pueda hacer un agente comprometido (y más fácil de vigilar con Tetragon).

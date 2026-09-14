@@ -150,6 +150,26 @@ def _disposicion(r: dict) -> None:
         unsafe_allow_html=True)
 
 
+MARGEN_MS = 5_000   # alrededor de la corrida, por diferencias de reloj entre nodos
+
+
+def _eventos_de_red(c: dict) -> tuple[list[dict], str | None]:
+    """Eventos del observador dentro de la ventana de la corrida, y una nota si no hay fuente."""
+    fin = c["fin_ms"] or int(time.time() * 1000)
+    try:
+        r = requests.get(f"{url_de('observador').rstrip('/')}/v1/eventos",
+                         params={"desde_ms": c["inicio_ms"] - MARGEN_MS, "hasta_ms": fin + MARGEN_MS},
+                         timeout=10)
+        r.raise_for_status()
+        eventos = r.json()["eventos"]
+    except requests.RequestException as ex:
+        return [], f"Carril derecho no disponible: no se pudo consultar al observador ({type(ex).__name__})."
+    if not any(e.get("detail", {}).get("visibilidad") == "L7" for e in eventos):
+        return eventos, ("Sin eventos L7 en esta ventana. Si la corrida es anterior a activar la política "
+                         "de visibilidad L7 o al arranque del observador, la red no la registró.")
+    return eventos, None
+
+
 def _corrida(c: dict) -> None:
     duracion = ((c["fin_ms"] or int(time.time() * 1000)) - c["inicio_ms"]) / 1000
     estado = {"en_curso": "en curso", "completada": "completada", "fallida": "fallida"}[c["estado"]]
@@ -171,14 +191,12 @@ def _corrida(c: dict) -> None:
         if p["paso"].startswith("omitido"):
             st.markdown(f"<div class='paso-omitido'>{e(p['paso'])}</div>", unsafe_allow_html=True)
 
-    # Panel de dos carriles. El carril derecho todavía no tiene fuente en el
-    # cluster: kernel_watch existe y está probado, pero falta desplegarlo y
-    # activar visibilidad L7 para que Hubble vea las trazas. Se dice en pantalla.
+    # Panel de dos carriles. El carril derecho viene del observador (Hubble).
+    # La ventana de tiempo solo ACOTA qué eventos se muestran para esta corrida;
+    # la alineación entre carriles es por traza (protocols/carriles.py).
     if c.get("llamadas"):
-        render_dos_carriles(
-            c["llamadas"], [],
-            nota_fuente_derecha="Carril derecho pendiente: falta desplegar el observador de Hubble "
-                                "(kernel_watch) y activar visibilidad L7 en Cilium.")
+        eventos, nota = _eventos_de_red(c)
+        render_dos_carriles(c["llamadas"], eventos, nota_fuente_derecha=nota)
 
     if c["estado"] == "en_curso":
         st.caption("Deliberando… la página se actualiza sola.")

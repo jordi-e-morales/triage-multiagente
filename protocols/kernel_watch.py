@@ -169,6 +169,9 @@ def flujo_a_evento(registro: dict) -> dict | None:
     return None
 
 
+MAX_MEMORIA = 50_000   # tope de claves recordadas para deduplicar y enlazar respuestas
+
+
 def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bool = True) -> int:
     """
     Procesa líneas JSON de Hubble y emite eventos. Devuelve cuántos emitió.
@@ -186,6 +189,12 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
     traza_por_request_id: dict[str, str] = {}
     emitidos = 0
     for linea in lineas:
+        # En modo continuo (observador en el cluster) el flujo no termina:
+        # sin este tope, la memoria de deduplicación crecería sin límite.
+        if len(vistos) > MAX_MEMORIA:
+            vistos.clear()
+        if len(traza_por_request_id) > MAX_MEMORIA:
+            traza_por_request_id.clear()
         linea = linea.strip()
         if not linea:
             continue
@@ -214,10 +223,11 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
     return emitidos
 
 
-def seguir(servidor: str = "localhost:4245", namespace: str = "agentes") -> Iterator[str]:
+def seguir(servidor: str = "localhost:4245", namespace: str = "agentes",
+           binario: str = "hubble") -> Iterator[str]:
     """Líneas en vivo de `hubble observe -f`. Requiere el CLI hubble y acceso al relay."""
     proc = subprocess.Popen(
-        ["hubble", "observe", "--server", servidor, "--namespace", namespace, "-f", "-o", "json"],
+        [binario, "observe", "--server", servidor, "--namespace", namespace, "-f", "-o", "json"],
         stdout=subprocess.PIPE, text=True, bufsize=1)
     try:
         assert proc.stdout is not None

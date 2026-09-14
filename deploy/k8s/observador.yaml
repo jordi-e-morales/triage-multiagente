@@ -1,0 +1,83 @@
+# Observador: carril derecho del panel. Sigue `hubble observe` y sirve los
+# eventos de red a la UI (GET /v1/eventos).
+#
+# De dónde sale el CLI de Hubble: de la MISMA imagen de Cilium que ya corre en
+# los nodos (quay.io/cilium/cilium:v1.20.1 trae /usr/bin/hubble 1.20.1, igual
+# que el relay). Un initContainer lo copia a un volumen compartido y el
+# contenedor principal (nuestra imagen) lo ejecuta. Nada se descarga.
+# Si se actualiza Cilium, hay que actualizar aquí la imagen y su digest.
+#
+# rol: observador -> no es agente; su única salida es hacia hubble-relay.
+#
+# Aplicar (con triage-agentes cargada en kind):
+#   kubectl apply -f deploy/k8s/observador.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observador
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: observador}
+  template:
+    metadata:
+      labels: {app: observador, rol: observador}
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: copiar-hubble
+          image: quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b
+          imagePullPolicy: IfNotPresent
+          command: ["cp", "/usr/bin/hubble", "/herramientas/hubble"]
+          securityContext:
+            runAsUser: 10001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: herramientas, mountPath: /herramientas}
+      containers:
+        - name: observador
+          image: triage-agentes:0.4.0
+          imagePullPolicy: Never
+          env:
+            - {name: COMPONENTE, value: observador}
+            - {name: HUBBLE_BIN, value: /herramientas/hubble}
+            # Relay sin TLS dentro del cluster (puerto 80 del Service).
+            - {name: HUBBLE_SERVER, value: "hubble-relay.kube-system.svc.cluster.local:80"}
+            - {name: HUBBLE_NAMESPACE, value: agentes}
+            # El CLI de Hubble guarda configuración en $HOME; el FS es de solo lectura.
+            - {name: HOME, value: /tmp}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 384Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: herramientas, mountPath: /herramientas, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: herramientas, emptyDir: {}}
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: observador
+  namespace: agentes
+spec:
+  selector: {app: observador}
+  ports:
+    - {port: 8000, targetPort: 8000}

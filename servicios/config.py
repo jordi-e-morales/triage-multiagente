@@ -49,6 +49,8 @@ _SERVICIOS = [
     ("defensor", "URL_DEFENSOR", "http://defensor:8000"),
     ("arbitro", "URL_ARBITRO", "http://arbitro:8000"),
     ("registro", "URL_REGISTRO", "http://registro:8000"),
+    # No es agente: sirve los eventos que observó la red (carril derecho).
+    ("observador", "URL_OBSERVADOR", "http://observador:8000"),
 ]
 
 
