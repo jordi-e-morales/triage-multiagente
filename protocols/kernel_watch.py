@@ -13,19 +13,27 @@ Qué se reporta, para no inundar el panel con cada paquete:
 - L3_L4: solo el INICIO de cada conexión (SYN sin ACK, no respuesta) y todo
   flujo DROPPED. Un mismo inicio se ve en origen y en destino: se deduplica.
 - L7 (HTTP): cada petición, con método y URL, y el X-Trace-Id si lo trae.
+  Las respuestas solo se reportan si son una denegación (403).
 - Otros tipos (SOCK, TRACE de sockets, etc.): se ignoran.
+- Ruido de infraestructura, ignorado por omisión: sondas del kubelet
+  (reserved:host) y peticiones a rutas de salud (/salud, /_stcore/health),
+  que el verificador y la página Admin generan sin traza. Sin este filtro
+  aparecerían como "eventos sin contraparte", es decir, como alarmas falsas.
 
 La columna `visibilidad` importa. Un flujo L3_L4 NUNCA trae encabezados, así
 que "sin traza" ahí no significa nada. Solo con visibilidad L7 (política L7
 activa en Cilium) la ausencia de X-Trace-Id es la señal de alarma del Demo 2.
 
 Estado de validación (honesto):
-- La forma de los flujos L3_L4 se validó contra una captura real del cluster
-  (tests/fixtures/hubble_l34_agentes.jsonl, 2026-09-14).
-- La forma de los flujos L7 sigue los nombres del flow.proto de Hubble
-  (l7.type, l7.http.method/url/code/headers[key,value]) y está PENDIENTE de
-  validar con una captura real cuando exista una política L7 en el cluster.
-  En particular, cómo aparece la denegación L7 (403) debe confirmarse.
+- L3_L4: captura real del cluster (tests/fixtures/hubble_l34_agentes.jsonl).
+- L7 petición y respuesta permitidas: captura real con la política de
+  visibilidad (tests/fixtures/hubble_l7_registro.jsonl, 2026-09-14). Datos
+  observados: la petición trae los encabezados (X-Trace-Id incluido) y
+  code=0; la respuesta trae code, NO trae X-Trace-Id, y su source/destination
+  están invertidos (source = quien responde). Petición y respuesta comparten
+  X-Request-Id, que agrega Envoy.
+- L7 DENEGADO (403 por política): PENDIENTE de validar con captura real en la
+  Fase 3, cuando exista una política que niegue algo.
 """
 from __future__ import annotations
 
@@ -68,11 +76,23 @@ def nombre_extremo(extremo: dict | None, ip: str | None) -> str:
     return reservada or ip or "desconocido"
 
 
-def _traza_de(http: dict) -> str | None:
+RUTAS_DE_SALUD = ("/salud", "/_stcore/health")
+
+
+def _cabecera(http: dict, nombre: str) -> str | None:
     for h in http.get("headers") or []:
-        if str(h.get("key", "")).lower() == CABECERA_TRAZA:
+        if str(h.get("key", "")).lower() == nombre:
             return h.get("value")
     return None
+
+
+def _traza_de(http: dict) -> str | None:
+    return _cabecera(http, CABECERA_TRAZA)
+
+
+def _es_ruta_de_salud(url: str | None) -> bool:
+    ruta = (url or "").split("?")[0]
+    return ruta.endswith(RUTAS_DE_SALUD)
 
 
 def flujo_a_evento(registro: dict) -> dict | None:
@@ -124,19 +144,26 @@ def flujo_a_evento(registro: dict) -> dict | None:
         if not http:
             return None                      # L7 no HTTP (DNS, Kafka): fuera de alcance
         codigo = http.get("code") or 0
+        es_respuesta = l7.get("type") == "RESPONSE"
+        if es_respuesta:
+            # Observado: en la respuesta source es quien responde. La acción la
+            # originó el otro extremo, así que se invierten.
+            origen, destino = destino, origen
         if codigo == 403 or veredicto == "DROPPED":
-            verdict = "HTTP_403"             # denegado por política L7 (pendiente validar forma real)
-        elif l7.get("type") == "REQUEST":
+            verdict = "HTTP_403"             # denegado (forma real pendiente de validar, Fase 3)
+        elif not es_respuesta:
             verdict = "FORWARDED"
         else:
-            return None                      # respuestas normales: el pedido ya se reportó
+            return None                      # respuesta normal: la petición ya se reportó
         return {
             "layer": "cilium", "source": origen, "verdict": verdict,
             "action": f"{http.get('method', '?')} {http.get('url', '?')}",
-            "detail": {**base_detalle, "visibilidad": "L7", "codigo": codigo,
-                       "tipo_l7": l7.get("type"), "motivo": flujo.get("drop_reason_desc")},
+            "detail": {**base_detalle, "destino": destino, "visibilidad": "L7", "codigo": codigo,
+                       "tipo_l7": l7.get("type"), "motivo": flujo.get("drop_reason_desc"),
+                       "request_id": _cabecera(http, "x-request-id")},
             "trace_id": _traza_de(http), "timestamp_ms": hora,
             "_clave": ("L7", flujo.get("uuid")),
+            "_url": http.get("url"),
         }
 
     return None
@@ -150,8 +177,13 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
     de conexión eran las sondas de salud del kubelet ('reserved:host' hacia
     cada pod cada 5 s). En el panel taparían el tráfico entre agentes. Se
     ignoran solo los PERMITIDOS; un flujo bloqueado desde el host se muestra.
+    Por la misma razón se ignoran las peticiones permitidas a rutas de salud.
+
+    Una respuesta no trae X-Trace-Id; si es una denegación, se le asigna la
+    traza de su petición buscando por X-Request-Id.
     """
     vistos: set = set()
+    traza_por_request_id: dict[str, str] = {}
     emitidos = 0
     for linea in lineas:
         linea = linea.strip()
@@ -163,7 +195,14 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
             continue                          # línea corrupta: no tumba el observador
         if ev is None:
             continue
-        if ignorar_sondas and ev["source"] == "reserved:host" and ev["verdict"] == "FORWARDED":
+        url = ev.pop("_url", None)
+        request_id = ev["detail"].get("request_id")
+        if ev["trace_id"] and request_id:
+            traza_por_request_id[request_id] = ev["trace_id"]
+        elif not ev["trace_id"] and request_id in traza_por_request_id:
+            ev["trace_id"] = traza_por_request_id[request_id]
+        if ignorar_sondas and ev["verdict"] == "FORWARDED" and (
+                ev["source"] == "reserved:host" or _es_ruta_de_salud(url)):
             continue
         clave = ev.pop("_clave")
         if clave in vistos:

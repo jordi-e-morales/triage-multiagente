@@ -1,0 +1,51 @@
+# Visibilidad L7 (Fase 2): hace que Hubble vea las peticiones HTTP entre
+# componentes (método, ruta y encabezados como X-Trace-Id), SIN bloquear nada
+# legítimo.
+#
+# Cómo funciona: una regla `http: [{}]` en un puerto obliga a Cilium a pasar
+# ese tráfico por su proxy L7 (Envoy). La lista vacía de condiciones permite
+# cualquier petición HTTP, pero al pasar por el proxy cada petición queda
+# registrada como flujo L7 en Hubble. Eso alimenta el carril derecho.
+#
+# LO QUE SÍ CAMBIA (léase antes de aplicar): en cuanto una política selecciona
+# un pod, todo tráfico de ENTRADA que no esté permitido explícitamente se
+# bloquea. Aquí se permite, hacia el puerto 8000:
+#   - cluster:     cualquier pod del cluster (los agentes entre sí, la UI)
+#   - host:        el nodo, que es de donde vienen las sondas de salud
+#   - remote-node: el otro nodo de kind
+# Cualquier otro puerto de estos pods queda cerrado a la entrada. La salida
+# (hacia Ollama, DNS, etc.) no se toca: esta política es solo de entrada.
+#
+# Quedan fuera a propósito:
+#   - ui (8501): Streamlit usa websockets; no aporta a los carriles.
+#   - ollama (11434): las llamadas al modelo no llevan traza.
+#
+# Fase 3 la sustituye por la política estricta (quién puede llamar qué ruta,
+# según la tabla de contratos de CLAUDE.md).
+#
+# Aplicar / quitar:
+#   kubectl apply  -f deploy/k8s/politicas/visibilidad-l7.yaml
+#   kubectl delete -f deploy/k8s/politicas/visibilidad-l7.yaml
+# (Esta carpeta NO la aplica `kubectl apply -f deploy/k8s/`: las políticas se
+# aplican a mano, a propósito.)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: visibilidad-l7
+  namespace: agentes
+spec:
+  description: "Fase 2: visibilidad HTTP en el puerto 8000 de los seis componentes, sin restricciones de ruta"
+  endpointSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro]
+  ingress:
+    - fromEntities: [cluster, host, remote-node]
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          rules:
+            http:
+              - {}

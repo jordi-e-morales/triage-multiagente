@@ -33,6 +33,22 @@ El Job de descarga también reintenta solo si arranca antes que el servidor.
 Si reinicias un pod, el `port-forward` que apuntaba a él se corta: vuelve a
 lanzarlo.
 
+## Políticas de Cilium (se aplican a mano)
+
+`deploy/k8s/politicas/` no entra en `kubectl apply -f deploy/k8s/`, a propósito:
+una política cambia qué tráfico pasa.
+
+```bash
+# Visibilidad L7 (Fase 2): Hubble ve método, ruta y X-Trace-Id. No bloquea nada legítimo.
+kubectl apply -f deploy/k8s/politicas/visibilidad-l7.yaml
+# Comprobar con tráfico de prueba (no llama al modelo):
+kubectl -n agentes exec -i deploy/orquestador -- python - < herramientas/prueba_l7.py
+```
+
+Requiere `envoy.streamIdleTimeoutDurationSeconds=1800` en Cilium (lo pone
+`lab/cluster-up.sh`): con el valor por omisión, Envoy corta a los 300 s una
+llamada a un agente que todavía no responde, y en CPU tardan más.
+
 ## Archivos
 
 | Archivo | Qué crea |
