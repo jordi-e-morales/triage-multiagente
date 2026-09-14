@@ -20,6 +20,7 @@ import time
 import requests
 import streamlit as st
 
+from pages._pipeline_view import render_dos_carriles
 from schemas.caso import load_case
 from servicios.config import presupuesto_tokens_caso, url_de
 
@@ -169,6 +170,15 @@ def _corrida(c: dict) -> None:
     for p in c["pasos"]:
         if p["paso"].startswith("omitido"):
             st.markdown(f"<div class='paso-omitido'>{e(p['paso'])}</div>", unsafe_allow_html=True)
+
+    # Panel de dos carriles. El carril derecho todavía no tiene fuente en el
+    # cluster: kernel_watch existe y está probado, pero falta desplegarlo y
+    # activar visibilidad L7 para que Hubble vea las trazas. Se dice en pantalla.
+    if c.get("llamadas"):
+        render_dos_carriles(
+            c["llamadas"], [],
+            nota_fuente_derecha="Carril derecho pendiente: falta desplegar el observador de Hubble "
+                                "(kernel_watch) y activar visibilidad L7 en Cilium.")
 
     if c["estado"] == "en_curso":
         st.caption("Deliberando… la página se actualiza sola.")

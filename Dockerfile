@@ -5,8 +5,8 @@
 # y arranca `uvicorn servicios.<COMPONENTE>:app` en el puerto 8000.
 #
 # Construir y cargar en kind (dentro de la VM):
-#   docker build -t triage-agentes:0.2.0 .
-#   kind load docker-image triage-agentes:0.2.0 --name agentes --nodes agentes-worker
+#   docker build -t triage-agentes:0.3.0 .
+#   kind load docker-image triage-agentes:0.3.0 --name agentes --nodes agentes-worker
 
 # Fijada por digest (amd64, publicada 2026-09-02): la imagen del evento debe ser
 # exactamente la que se ensayó, aunque el tag 3.13-slim se actualice.

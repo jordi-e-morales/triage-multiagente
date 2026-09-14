@@ -102,6 +102,18 @@ h3 { font-weight: 600 !important; color: #0a0a0a !important; }
 .salto-lateral { background: #ede9fe; color: #5b21b6; font-size: 0.7rem; font-weight: 600;
                  padding: 1px 8px; border-radius: 3px; margin-left: 6px; }
 .paso-omitido { background: #fee2e2; color: #991b1b; padding: 6px 10px; margin: 6px 0; font-weight: 600; }
+
+/* ─── Dos carriles (Fase 2) ─── */
+.carriles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; margin: 8px 0; }
+.carril-titulo { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em;
+                 color: #6b7280; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; }
+.carril-llamada { border-left: 4px solid #0a0a0a; background: #f8f8f8; padding: 6px 10px; font-size: 0.85rem; }
+.carril-evento { border-left: 4px solid #2563eb; background: #eff6ff; padding: 6px 10px; font-size: 0.85rem; margin: 4px 0; }
+.carril-error { border-left-color: #dc2626; }
+.carril-alarma { border-left-color: #dc2626; background: #fee2e2; }
+.carril-vacio { color: #9ca3af; padding: 6px 10px; }
+.marca-alarma { background: #dc2626; color: #fff; font-size: 0.65rem; font-weight: 700;
+                padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
 </style>
 """, unsafe_allow_html=True)
 
