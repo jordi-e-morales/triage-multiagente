@@ -193,6 +193,7 @@ class TestLimpiezaDeTexto(unittest.TestCase):
             "según evidencia ev-004 [INTERNO].": "según evidencia ev-004.",
             "requiere actualización (evidencia ev-005, pol-5.2)": "requiere actualización",
             "no aportan claridad (evidencia ev-001 y ev-003), aunque": "no aportan claridad, aunque",
+            "supera tres veces el ingreso declarado. [ev-004, ev-005, pol-5.2]": "supera tres veces el ingreso declarado.",
         }
         for entrada, esperado in casos.items():
             with self.subTest(entrada=entrada):

@@ -417,6 +417,9 @@ def quitar_citas_del_texto(texto: str, caso: Case) -> str:
         return "" if not resto else m.group(0)     # solo citas: se quita
 
     limpio = re.sub(r"\s*\(([^()]*)\)", reemplazar, texto)
+    # Corrida de validación Fase 2: el modelo también citó entre corchetes,
+    # "...ingreso declarado. [ev-004, ev-005, pol-5.2]".
+    limpio = re.sub(r"\s*\[([^\[\]]*)\]", reemplazar, limpio)
     limpio = _MARCAS.sub("", limpio)
     return re.sub(r"\s+([.,;:])", r"\1", limpio).strip()
 

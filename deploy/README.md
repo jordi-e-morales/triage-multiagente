@@ -77,6 +77,18 @@ deliberación completa con ese límite).
 - Límite de contexto del modelo: 32 768 tokens. `num_ctx` se fija en cada
   llamada; si un prompt no cabe, la llamada falla en vez de recortar.
 
+## Validación de la Fase 2 (2026-09-14)
+
+Deliberación `fe2b66485b3f` de `aml-0042` por los pods, con la política de
+visibilidad L7 activa, VM de 10 GB y Ollama limitado a 7Gi:
+
+- Completada en 817 s, 17,472 tokens, 14 llamadas entre componentes, todas HTTP 200.
+- Dos carriles: **14 emparejados por traza, 0 llamadas sin evento de red,
+  0 eventos sin contraparte** (más 35 flujos L3/L4, que no se alinean).
+- Sin reintentos de Envoy: 14 peticiones L7 observadas = 14 declaradas.
+- La llamada más larga fue de 255 s, así que el ajuste de 300 s a 1800 s del
+  proxy **no llegó a ponerse a prueba** en esta corrida.
+
 ## En dCloud
 
 `ollama.yaml` y `ollama-descarga.yaml` no se aplican. Se editan
