@@ -7,9 +7,9 @@ Manifiestos de Kubernetes de la demo. El entorno (VM, kind, Cilium) lo instala
 
 ```bash
 # 1. Imágenes (dentro de la VM, desde la raíz del repo)
-docker build -t triage-agentes:0.1.0 .
-docker build -f Dockerfile.ui -t triage-ui:0.1.0 .
-kind load docker-image triage-agentes:0.1.0 triage-ui:0.1.0 --name agentes --nodes agentes-worker
+docker build -t triage-agentes:0.2.0 .
+docker build -f Dockerfile.ui -t triage-ui:0.2.0 .
+kind load docker-image triage-agentes:0.2.0 triage-ui:0.2.0 --name agentes --nodes agentes-worker
 
 # 2. Todo lo de deploy/k8s
 kubectl apply -f deploy/k8s/

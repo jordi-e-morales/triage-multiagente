@@ -2,8 +2,8 @@
 # página Admin, hace GET de salud a los demás).
 #
 # Construir y cargar en kind (dentro de la VM):
-#   docker build -f Dockerfile.ui -t triage-ui:0.1.0 .
-#   kind load docker-image triage-ui:0.1.0 --name agentes --nodes agentes-worker
+#   docker build -f Dockerfile.ui -t triage-ui:0.2.0 .
+#   kind load docker-image triage-ui:0.2.0 --name agentes --nodes agentes-worker
 
 # Misma base fijada por digest que la imagen de los agentes.
 FROM python:3.13-slim@sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00
