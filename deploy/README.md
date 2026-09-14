@@ -6,35 +6,57 @@ Manifiestos de Kubernetes de la demo. El entorno (VM, kind, Cilium) lo instala
 ## Orden
 
 ```bash
-# 1. Namespace, apuntes de endpoints y servidor de modelos
+# 1. Imágenes (dentro de la VM, desde la raíz del repo)
+docker build -t triage-agentes:0.1.0 .
+docker build -f Dockerfile.ui -t triage-ui:0.1.0 .
+kind load docker-image triage-agentes:0.1.0 triage-ui:0.1.0 --name agentes --nodes agentes-worker
+
+# 2. Todo lo de deploy/k8s
 kubectl apply -f deploy/k8s/
 
-# 2. Esperar a que Ollama esté listo y a que baje los modelos
+# 3. Esperar a Ollama y a que baje los modelos
 kubectl -n agentes rollout status deploy/ollama
-kubectl -n agentes wait --for=condition=complete job/ollama-descarga --timeout=900s
+kubectl -n agentes wait --for=condition=complete job/ollama-descarga --timeout=1500s
+
+# 4. Comprobar desde dentro del cluster que todo responde
+kubectl -n agentes exec deploy/orquestador -- python -m servicios.verificar
+
+# 5. Abrir la UI desde Windows (escucha en la IP de la VM)
+kubectl -n agentes port-forward --address 0.0.0.0 svc/ui 8501:8501
 ```
 
-`kubectl apply -f deploy/k8s/` aplica los archivos en orden alfabético. El Job
-de descarga puede fallar la primera vez si arranca antes que el servidor; se
-reintenta solo.
+`kubectl apply -f deploy/k8s/` aplica en orden alfabético: `agentes.yaml` va
+antes que `endpoints.yaml`, así que los pods pueden quedar unos segundos en
+`CreateContainerConfigError` hasta que exista el ConfigMap; se recuperan solos.
+El Job de descarga también reintenta solo si arranca antes que el servidor.
+
+Si reinicias un pod, el `port-forward` que apuntaba a él se corta: vuelve a
+lanzarlo.
 
 ## Archivos
 
 | Archivo | Qué crea |
 |---|---|
 | `k8s/00-namespace.yaml` | Namespace `agentes` |
-| `k8s/endpoints.yaml` | ConfigMap con las URLs de componentes y modelos (lo que muestra la página Admin) |
+| `k8s/endpoints.yaml` | ConfigMap: URLs, modelos, `num_ctx`, presupuesto de tokens, timeouts |
+| `k8s/agentes.yaml` | Deployment + Service de orquestador, enriquecedor, investigador, defensor, arbitro y registro |
+| `k8s/ui.yaml` | Deployment + Service de la UI (Streamlit) |
 | `k8s/ollama.yaml` | Volumen para modelos, Deployment y Service `ollama` (solo desarrollo, CPU) |
 | `k8s/ollama-descarga.yaml` | Job que baja los modelos nombrados en `endpoints` |
 
-## Medido en la VM de desarrollo (2026-09-13)
+## Medido en la VM de desarrollo
+
+VM con 12 vCPU y 14 GB, sin GPU (2026-09-13/14):
 
 - Imagen `ollama/ollama:0.34.0`: 3.45 GB comprimida, ~5.5 GB en disco del nodo.
-- `qwen2.5:3b` (Q4_K_M, 1.9 GB): descarga en ~3 min.
-- En CPU (4 vCPU): ~9 tokens/s de generación; primera llamada con carga del
-  modelo ~9 s, las siguientes ~2 s para una respuesta corta.
-- Límite de contexto del modelo: 32 768 tokens. Hay que fijar `num_ctx` en cada
-  llamada; si no, Ollama recorta el contexto sin avisar.
+- `qwen2.5:7b` (4.7 GB): el modelo de desarrollo. `qwen2.5:3b` no sostenía los
+  roles del debate.
+- Deliberación completa de `aml-0042` por los pods: 12,760 tokens, ~19 min.
+  Entre 1.5 y 6 min por agente.
+- Imagen `triage-agentes`: 213 MB en disco. Imagen `triage-ui`: 788 MB en disco
+  (182 MB comprimida). Versiones exactas de la UI en `requirements-ui.lock.txt`.
+- Límite de contexto del modelo: 32 768 tokens. `num_ctx` se fija en cada
+  llamada; si un prompt no cabe, la llamada falla en vez de recortar.
 
 ## En dCloud
 

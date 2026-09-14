@@ -37,7 +37,12 @@ EXPOSE 8501
 # - showSidebarNavigation=false: Streamlit listaría solo la carpeta pages/;
 #   la navegación la hace app.py.
 # - fileWatcherType none: en el contenedor el código no cambia.
+# - theme.base light: el CSS de app.py está diseñado sobre fondo blanco; con
+#   el tema oscuro del navegador los títulos negros no se leían.
+# - browser.serverAddress: sin esto, al arrancar Streamlit consultó un
+#   servicio de internet para averiguar la IP pública ("External URL").
 CMD ["streamlit", "run", "app.py", \
      "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true", \
      "--browser.gatherUsageStats=false", "--client.showSidebarNavigation=false", \
-     "--server.fileWatcherType=none"]
+     "--server.fileWatcherType=none", "--theme.base=light", \
+     "--browser.serverAddress=localhost"]
