@@ -25,6 +25,12 @@ class ProtocolEmitter:
         self.slim_messages: list[dict] = []
         self.otel_spans: list[dict] = []
         self.dir_events: list[dict] = []
+        # Cuarta lista, SEPARADA de las tres anteriores a propósito: lo que
+        # observó la infraestructura (contenido, red, kernel), no lo que los
+        # agentes dicen de sí mismos. Mezclarlas rompería las vistas existentes
+        # y, peor, confundiría las dos fuentes que el panel de dos carriles
+        # tiene que contrastar.
+        self.security_events: list[dict] = []
         self._span_starts: dict[str, float] = {}
 
     # ─── SLIM ──────────────────────────────────────────────────────────────
@@ -128,6 +134,59 @@ class ProtocolEmitter:
                         "attributes": {"exception.message": error},
                     })
                 break
+
+    # ─── Seguridad (lo que vio la infraestructura) ─────────────────────────
+
+    CAPAS = ("content", "cilium", "tetragon")
+    VEREDICTOS = ("FORWARDED", "DROPPED", "SIGKILL", "HTTP_403")
+
+    def emit_security_event(
+        self,
+        ctx: PipelineContext | None,
+        layer: str,
+        source: str,
+        action: str,
+        verdict: str,
+        detail: dict | str,
+        trace_id: str | None = None,
+        timestamp_ms: int | None = None,
+    ) -> dict:
+        """
+        Registra un evento observado por una capa de control.
+
+        layer    content (guardrail) | cilium (red, Hubble) | tetragon (kernel)
+        source   quién originó la acción observada (p.ej. "agentes/enriquecedor")
+        action   qué se intentó (p.ej. "POST registro:8000/v1/disponer", "exec /usr/bin/curl")
+        verdict  FORWARDED | DROPPED | SIGKILL | HTTP_403
+        trace_id el X-Trace-Id que traía la petición, si lo traía. None es
+                 información, no un error: un flujo sin traza es algo que la
+                 deliberación no pidió (señal de alarma del Demo 2).
+        timestamp_ms  cuándo lo vio la capa (Hubble/Tetragon traen su propia
+                 hora); si falta, la hora de registro.
+
+        `ctx` puede ser None: el observador del kernel no conoce la sesión;
+        solo la traza, si la hay, permite alinear el evento con el pipeline.
+        """
+        if layer not in self.CAPAS:
+            raise ValueError(f"layer desconocida: {layer!r} (válidas: {self.CAPAS})")
+        if verdict not in self.VEREDICTOS:
+            raise ValueError(f"verdict desconocido: {verdict!r} (válidos: {self.VEREDICTOS})")
+        event = {
+            "event_id": str(uuid.uuid4()),
+            "session_id": ctx.session_id if ctx else None,
+            "timestamp_ms": timestamp_ms if timestamp_ms is not None else int(time.time() * 1000),
+            "layer": layer,
+            "source": source,
+            "action": action,
+            "verdict": verdict,
+            "detail": detail,
+            "trace_id": trace_id,
+            # Correlación con lo que dijeron los agentes: solo por traza, nunca
+            # por ventana de tiempo (CLAUDE.md, sección 5).
+            "sin_traza": trace_id is None,
+        }
+        self.security_events.append(event)
+        return event
 
     # ─── DIR ───────────────────────────────────────────────────────────────
 
