@@ -1,0 +1,7 @@
+# Estos archivos se usan en Linux (VM, contenedores, dCloud). Con
+# core.autocrlf=true en Windows, git los convertiría a CRLF al hacer checkout
+# y bash o el build de la imagen fallarían. Esto fuerza LF.
+*.sh        text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+Dockerfile  text eol=lf
