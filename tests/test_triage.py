@@ -21,7 +21,8 @@ from schemas.caso import load_case
 from schemas.deliberacion import ArgumentoV1, ContextoV1, DisposicionV1, esquema_para_llm
 from tests._servidor import levantar
 
-CASO = load_case(os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "casos", "aml-0042.json"))
+CASO_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "casos", "aml-0042.json")
+CASO = load_case(CASO_PATH)
 
 
 def doble(*respuestas: dict):
@@ -141,6 +142,46 @@ class TestEnriquecedor(unittest.TestCase):
         r = triage.enriquecer(CASO, llamar=doble(malo, CONTEXTO_OK))
         self.assertEqual(r.intentos, 2)
         self.assertEqual(r.metricas["prompt_tokens"], 200)
+
+
+class TestRedaccionConContrapartes(unittest.TestCase):
+    """aml-0107: el sujeto y su contraparte comparten el sufijo 'SA de CV'."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.caso = load_case(os.path.join(os.path.dirname(CASO_PATH), "aml-0107.json"))
+
+    def _redactar(self, texto: str) -> str:
+        ctx = ContextoV1.model_validate({"resumen": texto, "hechos": [{"hecho": texto, "evidencia": ["ev-001"]}]})
+        return triage.redactar_sujeto(ctx, self.caso).resumen
+
+    def test_no_toca_el_nombre_de_la_contraparte(self):
+        texto = "Recibió 1,240,000 MXN de Constructora Pedregal Norte SA de CV."
+        self.assertEqual(self._redactar(texto), texto)
+
+    def test_si_tacha_al_sujeto_completo_y_parcial(self):
+        self.assertEqual(self._redactar("Herrería Industrial El Tejocote SA de CV compró acero"),
+                         "SUJ-40377 compró acero")
+        self.assertEqual(self._redactar("El Tejocote compró acero"), "SUJ-40377 compró acero")
+
+    def test_no_tacha_palabras_comunes_del_expediente(self):
+        texto = "Contrato para una nave industrial."
+        self.assertEqual(self._redactar(texto), texto)
+
+
+class TestTodosLosExpedientes(unittest.TestCase):
+    def test_el_recorte_quita_sujeto_y_texto_en_cada_expediente(self):
+        carpeta = os.path.dirname(CASO_PATH)
+        for nombre in sorted(f for f in os.listdir(carpeta) if f.endswith(".json")):
+            with self.subTest(expediente=nombre):
+                caso = load_case(os.path.join(carpeta, nombre))
+                recortado = triage.caso_para_deliberar(caso)
+                self.assertTrue(triage.es_caso_para_deliberar(recortado))
+                volcado = recortado.model_dump_json()
+                self.assertNotIn(caso.subject.display_name, volcado)
+                for e in caso.evidence:
+                    if e.free_text:
+                        self.assertNotIn(e.free_text, volcado)
 
 
 class TestLimpiezaDeTexto(unittest.TestCase):

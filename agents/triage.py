@@ -271,11 +271,16 @@ def redactar_sujeto(contexto: ContextoV1, caso: Case) -> ContextoV1:
     obedezca. Y un modelo rara vez copia el nombre completo: escribe
     "Refacciones Tepalca" en vez de "Refacciones Tepalca SA de CV".
 
-    Regla determinista, sin listas de sufijos por país:
-    - toda secuencia de 2+ palabras seguidas del nombre, y
-    - cada palabra "distintiva" del nombre: la que no aparece en ninguna otra
-      parte del expediente. "Tepalca" es distintiva; "Refacciones" no, porque
-      la evidencia habla de "refacciones para flotilla".
+    Regla determinista, sin listas de sufijos por país: se tacha cada
+    secuencia de palabras seguidas del nombre (de una palabra de 4+ letras, o
+    de 2+ palabras) que sea "distintiva", es decir, que NO aparezca en ninguna
+    otra parte del expediente.
+    - "Tepalca" es distintiva; "Refacciones" no, porque la evidencia habla de
+      "refacciones para flotilla".
+    - "SA de CV" no es distintiva si la contraparte también la usa. Sin esta
+      condición, "Constructora Pedregal Norte SA de CV" se convertía en
+      "Constructora Pedregal Norte SUJ-40377" (aml-0107): la operación quedaba
+      atribuida al sujeto.
     Se reemplaza de la más larga a la más corta.
     """
     nombre = re.sub(r"\s*\(.*?\)\s*", " ", caso.subject.display_name).strip()
@@ -287,8 +292,10 @@ def redactar_sujeto(contexto: ContextoV1, caso: Case) -> ContextoV1:
         + [p.text for p in caso.policy_excerpts]
     ).lower()
 
-    variantes = {" ".join(palabras[i:j]) for i in range(len(palabras)) for j in range(i + 2, len(palabras) + 1)}
-    variantes |= {p for p in palabras if len(p) >= 4 and p.lower() not in resto}
+    secuencias = {" ".join(palabras[i:j]) for i in range(len(palabras)) for j in range(i + 1, len(palabras) + 1)}
+    variantes = {s for s in secuencias
+                 if (len(s.split()) >= 2 or len(s) >= 4)
+                 and not re.search(rf"\b{re.escape(s.lower())}\b", resto)}
     patrones = [re.compile(rf"\b{re.escape(v)}\b", re.IGNORECASE)
                 for v in sorted(variantes, key=len, reverse=True)]
 
