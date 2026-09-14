@@ -13,10 +13,10 @@ st.set_page_config(
 # ─── Global CSS (International Typographic Style) ─────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
-
+/* Sin @import de Google Fonts: el día del evento nada depende de internet.
+   Si Inter está instalada en la máquina se usa; si no, la fuente del sistema. */
 html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 
 /* Sidebar */
@@ -173,12 +173,18 @@ with st.sidebar:
     st.session_state.page = selected
 
     st.markdown("---")
+    # Estado REAL de la demo. Antes esta lista decía "SLIM Protocol, OASF,
+    # OpenTelemetry, Agent Directory" como si estuvieran en uso, y en esta
+    # versión los componentes hablan HTTP. Regla de CLAUDE.md: no afirmar lo
+    # que no está. ● = en uso y verificado · ○ = pendiente.
     st.markdown("""
     <div style="font-size: 0.65rem; color: #666; padding: 0.5rem 0;">
-        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> SLIM Protocol v0.1</div>
-        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> OASF Schema v1.0</div>
-        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> OpenTelemetry</div>
-        <div><span style="color:#E31E24;">●</span> Agent Directory</div>
+        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> Un pod por componente (kind)</div>
+        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> HTTP entre pods con X-Trace-Id</div>
+        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> Inferencia local (Ollama, CPU)</div>
+        <div style="margin-bottom: 4px;"><span style="color:#E31E24;">●</span> Cilium + Hubble (visibilidad)</div>
+        <div style="margin-bottom: 4px; color:#555;">○ Políticas L7 y Tetragon · pendiente</div>
+        <div style="color:#555;">○ Identidad verificada (mTLS) · pendiente</div>
     </div>
     """, unsafe_allow_html=True)
 
