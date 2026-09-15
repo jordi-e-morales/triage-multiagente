@@ -40,6 +40,22 @@ class TestCheckpoints(unittest.TestCase):
         pasos = {e["paso"] for e in eventos}
         self.assertEqual(pasos, {"guardrail", "disponer", "ejecutar"})
 
+    def test_cada_momento_trae_narracion(self):
+        ruta = os.path.join(CORRIDAS, "demo2-aml-ofuscado-5829bbfc45f2.json")
+        ms = _checkpoints.momentos(_checkpoints.cargar(ruta))
+        for m in ms:
+            self.assertTrue(m.get("narracion"), f"momento sin narración: {m['tipo']}")
+
+    def test_narracion_seguridad_distingue_burda_de_ofuscada(self):
+        burda = _checkpoints.narracion_seguridad([{"paso": "guardrail", "verdict": "DROPPED"}])
+        ofus = _checkpoints.narracion_seguridad([
+            {"paso": "guardrail", "verdict": "FORWARDED"},
+            {"paso": "disponer", "verdict": "BLOQUEADA"},
+            {"paso": "ejecutar", "verdict": "BLOQUEADA"}])
+        self.assertIn("detuvo", burda.lower())
+        self.assertIn("403", ofus)
+        self.assertIn("SIGKILL", ofus)
+
     def test_corrida_limpia_sin_seguridad_no_agrega_panel(self):
         c = {"case_id": "x", "resultados": [
             {"agente": "enriquecedor", "mensaje": {}},

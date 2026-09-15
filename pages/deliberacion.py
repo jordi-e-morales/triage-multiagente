@@ -256,6 +256,8 @@ def _corrida(c: dict) -> None:
 def _render_momento(m: dict) -> None:
     tipo = m["tipo"]
     st.markdown(f"##### {e(m.get('titulo', ''))}")
+    if m.get("narracion"):
+        st.markdown(f"<div class='narracion'>{e(m['narracion'])}</div>", unsafe_allow_html=True)
     if tipo == "expediente":
         _expediente(m["case_id"])
     elif tipo == "contexto":
@@ -274,7 +276,19 @@ def _modo_presentacion() -> None:
         st.info("No hay checkpoints guardados en data/corridas/.")
         return
     nombres = [n for n, _ in checkpoints]
-    sel = st.selectbox("Checkpoint", nombres, key="cp_sel")
+    c1, c2 = st.columns([4, 2])
+    with c1:
+        sel = st.selectbox("Checkpoint", nombres, key="cp_sel")
+    with c2:
+        st.markdown("<div style='height:1.8rem'></div>", unsafe_allow_html=True)
+        grande = st.checkbox("Pantalla grande (stand)", key="cp_grande")
+    if grande:
+        # Tipografía legible a 4 metros. Se inyecta solo en este modo.
+        st.markdown("<style>.narracion{font-size:1.7rem;line-height:1.4} "
+                    ".capa-nombre{font-size:1.6rem} .capa-estado{font-size:1.4rem} "
+                    ".capa-sub,.capa-detalle{font-size:1rem} "
+                    ".tarjeta-tesis{font-size:1.5rem} .tarjeta-titulo{font-size:1.2rem} "
+                    ".hecho-interno,.hecho-externo{font-size:1.1rem}</style>", unsafe_allow_html=True)
     ruta = dict(checkpoints)[sel]
     # Se prepara el guion completo al cargar (falla aquí, no en escena).
     try:

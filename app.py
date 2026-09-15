@@ -129,6 +129,10 @@ h3 { font-weight: 600 !important; color: #0a0a0a !important; }
 .capa-alarma .capa-estado { color: #991b1b; }
 .capa-inactiva .capa-estado { color: #6b7280; }
 .capa-detalle { font-size: 0.75rem; color: #374151; word-break: break-word; }
+
+/* Subtítulo de narración (modo presentación, para operar el stand sin narrador) */
+.narracion { font-size: 1.05rem; color: #1f2937; background: #f8f8f8;
+             border-left: 4px solid #E31E24; padding: 8px 12px; margin: 6px 0 10px 0; }
 </style>
 """, unsafe_allow_html=True)
 
