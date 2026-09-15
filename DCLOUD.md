@@ -8,7 +8,7 @@ navegador.
 
 ```bash
 git clone https://github.com/jordi-e-morales/connect26-demo.git
-git clone https://github.com/jordi-e-morales/agntcy-mortgage-demo-python.git
+git clone https://github.com/jordi-e-morales/triage-multiagente.git
 ```
 
 ## 2. Entorno y cluster (repo connect26-demo)
@@ -27,21 +27,21 @@ Si tras un reinicio el cluster queda colgado: `./reparar-cluster.sh`.
 ## 3. Modelo del guardrail (gated, NO está en git)
 
 El clasificador Llama Prompt Guard 2 (22M) es gated de Meta y no se sube a
-GitHub. Descárgalo con tu cuenta (una vez) y déjalo en `./modelo`:
+GitHub. Descárgalo con tu cuenta (una vez) y déjalo en `triage-multiagente/modelo`:
 
 ```bash
 pip install -U "huggingface_hub[cli]"
 huggingface-cli login          # pega tu token de Hugging Face
 huggingface-cli download meta-llama/Llama-Prompt-Guard-2-22M \
-  --local-dir agntcy-mortgage-demo-python/modelo
+  --local-dir triage-multiagente/modelo
 ```
 
 (Requiere aceptar la licencia en huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M.)
 
-## 4. Construir imágenes y desplegar (repo agntcy-mortgage-demo-python)
+## 4. Construir imágenes y desplegar (repo triage-multiagente)
 
 ```bash
-cd agntcy-mortgage-demo-python
+cd triage-multiagente
 docker build -t triage-agentes:0.6.0 .
 docker build -f Dockerfile.ui -t triage-ui:0.6.0 .
 docker build -f Dockerfile.guardrail -t triage-guardrail:0.5.0 .   # usa ./modelo
