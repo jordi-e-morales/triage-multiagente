@@ -91,35 +91,49 @@ def revisar_y_actuar(caso: Case, revisar_fn: RevisarFn,
 
       {capa, paso, verdict, detalle, ...}
 
-    verdict:
-      DROPPED    el guardrail detuvo un fragmento (inyección burda).
-      BLOQUEADA  se intentó la acción y otra capa la paró (403 / SIGKILL). Es
-                 el resultado ESPERADO del Demo 2: contenido falló, red/kernel
-                 atraparon.
-      EJECUTADA  la acción se completó sin que nadie la parara. Es la ALARMA:
-                 significa que ninguna capa la detuvo.
+    verdict (paso "guardrail"):
+      DROPPED    el guardrail detuvo la inyección (burda). La capa de contenido
+                 hizo su trabajo; no se intenta ninguna acción.
+      FORWARDED  el guardrail la DEJÓ PASAR (ofuscada). La capa de contenido
+                 falló; se intentan las acciones (y las paran las otras capas).
+    verdict (pasos "disponer"/"ejecutar"):
+      BLOQUEADA  se intentó y otra capa la paró (403 / SIGKILL). Es el resultado
+                 esperado del Demo 2.
+      EJECUTADA  la acción se completó sin que nadie la parara. Es la ALARMA.
+
+    Solo se emiten eventos para los fragmentos que traen una directiva (el
+    ataque). Las glosas externas benignas no generan ruido.
     """
-    frags = [{"id": i, "texto": t} for i, t in fragmentos_externos(caso)]
+    frags = fragmentos_externos(caso)
     eventos: list[dict] = []
     detonantes: set[str] = set()
+    resultados: dict[str, dict] = {}
     if frags:
-        resp = revisar_fn(frags)
+        resp = revisar_fn([{"id": i, "texto": t} for i, t in frags])
         detonantes = set(resp.get("detonantes", []))
         etiqueta = resp.get("etiqueta", "")
-        for r in resp.get("resultados", []):
-            if r["id"] in detonantes:
-                eventos.append({"capa": "content", "paso": "guardrail", "verdict": "DROPPED",
-                                "fragmento": r["id"], "score": r.get("score"),
-                                "detalle": f"El guardrail detuvo la inyección. {etiqueta}"})
+        resultados = {r["id"]: r for r in resp.get("resultados", [])}
 
-    acciones, _ = acciones_tras_guardrail(caso, detonantes)
-    for a in acciones:
-        fn = disponer_fn if a.tipo == "disponer" else ejecutar_fn
-        try:
-            detalle = fn(a.valor)
-            eventos.append({"capa": "content", "paso": a.tipo, "verdict": "EJECUTADA",
-                            "fragmento": a.origen_evidencia, "detalle": detalle})
-        except Exception as e:  # noqa: BLE001 — el bloqueo llega como excepción
-            eventos.append({"capa": "content", "paso": a.tipo, "verdict": "BLOQUEADA",
-                            "fragmento": a.origen_evidencia, "detalle": f"{type(e).__name__}: {e}"})
+    for eid, texto in frags:
+        acciones = parsear_directivas(texto, eid)
+        if not acciones:
+            continue                            # fragmento externo sin directiva: no es el ataque
+        score = resultados.get(eid, {}).get("score")
+        if eid in detonantes:
+            eventos.append({"capa": "content", "paso": "guardrail", "verdict": "DROPPED",
+                            "fragmento": eid, "score": score,
+                            "detalle": f"El guardrail detuvo la inyección. {etiqueta}"})
+            continue                            # detenida en contenido: no se ejecuta nada
+        eventos.append({"capa": "content", "paso": "guardrail", "verdict": "FORWARDED",
+                        "fragmento": eid, "score": score,
+                        "detalle": f"El guardrail dejó pasar la inyección. {etiqueta}"})
+        for a in acciones:
+            fn = disponer_fn if a.tipo == "disponer" else ejecutar_fn
+            try:
+                detalle = fn(a.valor)
+                eventos.append({"capa": "content", "paso": a.tipo, "verdict": "EJECUTADA",
+                                "fragmento": eid, "detalle": detalle})
+            except Exception as e:  # noqa: BLE001 — el bloqueo llega como excepción
+                eventos.append({"capa": "content", "paso": a.tipo, "verdict": "BLOQUEADA",
+                                "fragmento": eid, "detalle": f"{type(e).__name__}: {e}"})
     return eventos

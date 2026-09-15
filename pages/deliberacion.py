@@ -170,6 +170,53 @@ def _eventos_de_red(c: dict) -> tuple[list[dict], str | None]:
     return eventos, None
 
 
+# Las tres capas del Demo 2. Cada una se identifica por el `paso` del evento
+# de contenido que produce el Enriquecedor (agents/demo2.py):
+#   guardrail -> capa de contenido | disponer -> red (L7) | ejecutar -> kernel
+CAPAS_DEMO2 = [
+    ("Contenido", "guardrail", "Guardrail abierto (sustituto de Cisco AI Defense)"),
+    ("Red", "disponer", "Cilium — política de capa 7"),
+    ("Kernel", "ejecutar", "Tetragon — control de kernel (eBPF)"),
+]
+
+
+def _panel_demo2(c: dict) -> None:
+    """Tres capas de seguridad y qué atrapó cada una, desde c['seguridad']."""
+    eventos = c.get("seguridad") or []
+    if not eventos:
+        return
+    por_paso: dict[str, list[dict]] = {}
+    for ev in eventos:
+        por_paso.setdefault(ev.get("paso", ""), []).append(ev)
+
+    st.markdown("#### Demo 2 · Tres capas de seguridad")
+    st.markdown("<span class='etiqueta-sintetico'>DATOS SINTÉTICOS</span> "
+                "El expediente trae una instrucción escondida en un documento externo.",
+                unsafe_allow_html=True)
+    cols = st.columns(3)
+    for col, (nombre, paso, subtitulo) in zip(cols, CAPAS_DEMO2):
+        evs = por_paso.get(paso, [])
+        if not evs:
+            estado, clase, detalle = "no se necesitó", "capa-inactiva", "La capa anterior ya detuvo el ataque."
+        else:
+            ev = evs[-1]
+            v = ev.get("verdict")
+            if v in ("DROPPED", "BLOQUEADA"):
+                estado, clase = "DETUVO", "capa-detuvo"
+            elif v == "FORWARDED":                  # el guardrail dejó pasar: contenido falló
+                estado, clase = "DEJÓ PASAR", "capa-paso"
+            else:                                   # EJECUTADA = nadie lo paró
+                estado, clase = "¡NO DETUVO!", "capa-alarma"
+            detalle = ev.get("detalle", "")
+        with col:
+            st.markdown(
+                f"<div class='capa-card {clase}'><div class='capa-nombre'>{e(nombre)}</div>"
+                f"<div class='capa-sub'>{e(subtitulo)}</div>"
+                f"<div class='capa-estado'>{e(estado)}</div>"
+                f"<div class='capa-detalle'>{e(detalle)}</div></div>",
+                unsafe_allow_html=True)
+
+
 def _corrida(c: dict) -> None:
     duracion = ((c["fin_ms"] or int(time.time() * 1000)) - c["inicio_ms"]) / 1000
     estado = {"en_curso": "en curso", "completada": "completada", "fallida": "fallida"}[c["estado"]]
@@ -178,6 +225,7 @@ def _corrida(c: dict) -> None:
     if c["error"]:
         st.error(c["error"])
     _expediente(c["case_id"])
+    _panel_demo2(c)
 
     for r in c["resultados"]:
         if r["agente"] == "enriquecedor":

@@ -114,6 +114,21 @@ h3 { font-weight: 600 !important; color: #0a0a0a !important; }
 .carril-vacio { color: #9ca3af; padding: 6px 10px; }
 .marca-alarma { background: #dc2626; color: #fff; font-size: 0.65rem; font-weight: 700;
                 padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
+
+/* ─── Demo 2: tres capas de seguridad ─── */
+.capa-card { border: 1px solid #e5e7eb; border-top-width: 6px; padding: 10px 12px; min-height: 130px; }
+.capa-detuvo   { border-top-color: #16a34a; background: #f0fdf4; }
+.capa-alarma   { border-top-color: #dc2626; background: #fee2e2; }
+.capa-inactiva { border-top-color: #9ca3af; background: #f8f8f8; }
+.capa-paso     { border-top-color: #d97706; background: #fffbeb; }
+.capa-paso .capa-estado { color: #92400e; }
+.capa-nombre { font-weight: 900; font-size: 1.1rem; }
+.capa-sub { font-size: 0.7rem; color: #6b7280; margin-bottom: 8px; }
+.capa-estado { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; }
+.capa-detuvo .capa-estado { color: #166534; }
+.capa-alarma .capa-estado { color: #991b1b; }
+.capa-inactiva .capa-estado { color: #6b7280; }
+.capa-detalle { font-size: 0.75rem; color: #374151; word-break: break-word; }
 </style>
 """, unsafe_allow_html=True)
 

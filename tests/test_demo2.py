@@ -67,8 +67,9 @@ class TestRevisarYActuar(unittest.TestCase):
         eventos = demo2.revisar_y_actuar(caso, _revisar_real({}),
                                          self._disponer_bloqueado, self._ejecutar_bloqueado)
         verd = [(e["paso"], e["verdict"]) for e in eventos]
-        # El guardrail no detuvo nada; se intentaron disponer y ejecutar, y
-        # ambas quedaron BLOQUEADA por las otras capas.
+        # El guardrail dejó pasar (FORWARDED); se intentaron disponer y ejecutar,
+        # y ambas quedaron BLOQUEADA por las otras capas.
+        self.assertIn(("guardrail", "FORWARDED"), verd)
         self.assertIn(("disponer", "BLOQUEADA"), verd)
         self.assertIn(("ejecutar", "BLOQUEADA"), verd)
         self.assertNotIn("DROPPED", [e["verdict"] for e in eventos])
@@ -94,7 +95,8 @@ class TestRevisarYActuar(unittest.TestCase):
         caso = load_case(os.path.join(CASOS, "aml-ofuscado.json"))
         eventos = demo2.revisar_y_actuar(caso, _revisar_real({}),
                                          lambda rec: "aceptado", lambda b: "corrió")
-        self.assertTrue(all(e["verdict"] == "EJECUTADA" for e in eventos))
+        acciones = [e for e in eventos if e["paso"] in ("disponer", "ejecutar")]
+        self.assertTrue(acciones and all(e["verdict"] == "EJECUTADA" for e in acciones))
 
 
 if __name__ == "__main__":
