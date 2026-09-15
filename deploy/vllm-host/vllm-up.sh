@@ -31,12 +31,25 @@ MODELO_GRANDE="${VLLM_MODELO_GRANDE:-Qwen/Qwen2.5-32B-Instruct-AWQ}"
 PUERTO_LOCAL="${VLLM_PUERTO_LOCAL:-18001}"     # 7B  (Enriquecedor)
 PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árbitro)
 
-# Fracción del L40S por instancia. 0.22 + 0.55 = 0.77; queda ~11 GB de colchón.
-FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.22}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.55}"
+# Fracción del L40S (48 GB) por instancia = pesos + caché KV. El local necesita
+# caché grande porque ve el expediente completo (~40k); el grande la necesita
+# porque ahí vive la presión de memoria que la demo quiere mostrar.
+# 0.30 + 0.52 = 0.82; queda ~8.6 GB de colchón. CALIBRAR en dCloud: si algo no
+# arranca por VRAM, bajar la fracción o la ventana (CTX_*) del que sobra.
+FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.52}"
 
-CTX_LOCAL="${VLLM_CTX_LOCAL:-8192}"
-CTX_GRANDE="${VLLM_CTX_GRANDE:-16384}"
+# Ventana de contexto. El diseño usa expedientes de ~35-40k tokens (CLAUDE.md §4)
+# y el Enriquecedor (local) ve el expediente COMPLETO, así que su ventana debe
+# pasar de 40k: Qwen2.5 es 32k nativo, y arriba de eso se extiende con YaRN
+# (ROPE_LOCAL). Los que debaten reciben el caso recortado, que cabe en 32k.
+CTX_LOCAL="${VLLM_CTX_LOCAL:-49152}"    # > 40k para el expediente entero (con YaRN)
+CTX_GRANDE="${VLLM_CTX_GRANDE:-32768}"  # nativo; el recortado cabe
+
+# YaRN para estirar el 7B de 32k a la ventana de arriba. factor = 49152/32768≈1.5;
+# 2.0 deja margen. Poner VLLM_ROPE_LOCAL="" (o bajar CTX_LOCAL a <=32768) lo apaga.
+ROPE_LOCAL_DEFECTO='{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}'
+ROPE_LOCAL="${VLLM_ROPE_LOCAL-$ROPE_LOCAL_DEFECTO}"   # sin ':' => "" explícito lo apaga
 
 CACHE_HF="${VLLM_CACHE_HF:-$HOME/.cache/huggingface}"   # pesos, para no re-bajar
 RED_KIND="${VLLM_RED_KIND:-kind}"                       # red Docker del cluster
@@ -62,7 +75,12 @@ arrancar() {
 }
 
 # El 7B en FP8 (Ada Lovelace lo soporta); el 32B con AWQ (kernel marlin).
-arrancar vllm-local  "$MODELO_LOCAL"  "$PUERTO_LOCAL"  "$FRAC_LOCAL"  "$CTX_LOCAL"  --quantization fp8
+# El local lleva YaRN solo si ROPE_LOCAL no está vacío (ventana > 32k nativo).
+opciones_local=(--quantization fp8)
+if [ -n "$ROPE_LOCAL" ]; then
+  opciones_local+=(--rope-scaling "$ROPE_LOCAL")
+fi
+arrancar vllm-local  "$MODELO_LOCAL"  "$PUERTO_LOCAL"  "$FRAC_LOCAL"  "$CTX_LOCAL"  "${opciones_local[@]}"
 arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" --quantization awq_marlin
 
 # ─── Esperar a que ambos respondan /health ───────────────────────────────────
