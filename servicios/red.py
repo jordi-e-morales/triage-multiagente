@@ -23,11 +23,12 @@ import uuid
 
 import requests
 
-from agents.llm_provider import call_ollama_estructurado
-from servicios.config import url_de
+from agents.llm_provider import call_ollama_estructurado, call_vllm_estructurado
+from servicios.config import backend, url_de
 
-# Sustituible en pruebas: servicios.red.LLAMAR = doble
-LLAMAR = call_ollama_estructurado
+# Backend del modelo según el entorno: ollama (CPU, desarrollo) o vllm (GPU,
+# dCloud). Se elige con LLM_BACKEND. Sustituible en pruebas: red.LLAMAR = doble.
+LLAMAR = call_vllm_estructurado if backend() == "vllm" else call_ollama_estructurado
 
 # En CPU un paso puede tardar varios minutos (el salto lateral encadena dos
 # llamadas al modelo). En GPU bastará mucho menos.

@@ -226,6 +226,121 @@ def call_ollama_estructurado(
     return resultado
 
 
+# ─── vLLM (Fase 4, GPU en dCloud) ─────────────────────────────────────────────
+# vLLM expone una API compatible con OpenAI. La salida estructurada se pide con
+# `guided_json` (decodificación guiada por el esquema). Se hace en streaming
+# para medir el TTFT (time to first token) por petición, que es lo que muestran
+# las tres barras de caché (frío/tibio/caliente). El desglose fino de tiempos y
+# la verdad de referencia del TTFT vienen de las métricas Prometheus de vLLM
+# (ver ttft_desde_prometheus); aquí se mide el TTFT del lado cliente.
+
+def _ensamblar_stream(chunks: list[dict]) -> dict:
+    """
+    Junta los chunks (ya deserializados) de un stream de vLLM chat/completions.
+    Pura, para probar sin servidor. Devuelve texto, tokens, finish_reason y el
+    índice del primer chunk con contenido (para ubicar el TTFT).
+    """
+    texto = []
+    finish = None
+    usage = {}
+    primer_contenido = None
+    for i, ch in enumerate(chunks):
+        for choice in ch.get("choices", []):
+            delta = choice.get("delta", {})
+            if delta.get("content"):
+                if primer_contenido is None:
+                    primer_contenido = i
+                texto.append(delta["content"])
+            if choice.get("finish_reason"):
+                finish = choice["finish_reason"]
+        if ch.get("usage"):
+            usage = ch["usage"]
+    return {
+        "texto": "".join(texto),
+        "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+        "completion_tokens": int(usage.get("completion_tokens", 0)),
+        "finish_reason": finish,
+        "indice_primer_contenido": primer_contenido,
+    }
+
+
+def call_vllm_estructurado(
+    messages: list[dict],
+    schema: dict,
+    model: str,
+    base_url: str,
+    num_ctx: int = 0,          # vLLM fija el contexto al arrancar; se ignora por petición
+    temperature: float = 0.2,
+    max_tokens: int = 800,
+    timeout_s: int = 600,
+) -> dict:
+    """
+    Llama a vLLM (API OpenAI) exigiendo el esquema con guided_json, en streaming
+    para medir el TTFT. Devuelve la MISMA forma que call_ollama_estructurado
+    (texto, prompt_tokens, completion_tokens, total_ms, truncada) más ttft_ms.
+    """
+    import time as _time
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        # vLLM: decodificación guiada por el JSON Schema.
+        "guided_json": schema,
+    }
+    inicio = _time.perf_counter()
+    ttft_ms = None
+    chunks: list[dict] = []
+    with requests.post(f"{base_url.rstrip('/')}/v1/chat/completions",
+                       json=payload, timeout=timeout_s, stream=True) as resp:
+        resp.raise_for_status()
+        for linea in resp.iter_lines(decode_unicode=True):
+            if not linea or not linea.startswith("data:"):
+                continue
+            dato = linea[len("data:"):].strip()
+            if dato == "[DONE]":
+                break
+            ch = json.loads(dato)
+            # Primer token con contenido => TTFT.
+            if ttft_ms is None and any(c.get("delta", {}).get("content") for c in ch.get("choices", [])):
+                ttft_ms = int((_time.perf_counter() - inicio) * 1000)
+            chunks.append(ch)
+
+    ens = _ensamblar_stream(chunks)
+    return {
+        "texto": ens["texto"],
+        "prompt_tokens": ens["prompt_tokens"],
+        "completion_tokens": ens["completion_tokens"],
+        "ttft_ms": ttft_ms,
+        "total_ms": int((_time.perf_counter() - inicio) * 1000),
+        "truncada": ens["finish_reason"] == "length",
+    }
+
+
+def ttft_desde_prometheus(texto_metrics: str) -> float | None:
+    """
+    Extrae el TTFT medio (ms) de las métricas Prometheus de vLLM, como verdad de
+    referencia (CLAUDE.md: medir, no estimar). Usa el histograma
+    vllm:time_to_first_token_seconds (sum/count). Pura, para probar con una
+    muestra de /metrics. Devuelve None si la métrica no está.
+    """
+    suma = cuenta = None
+    for linea in texto_metrics.splitlines():
+        linea = linea.strip()
+        if linea.startswith("#") or not linea:
+            continue
+        if linea.startswith("vllm:time_to_first_token_seconds_sum"):
+            suma = float(linea.rsplit(" ", 1)[1])
+        elif linea.startswith("vllm:time_to_first_token_seconds_count"):
+            cuenta = float(linea.rsplit(" ", 1)[1])
+    if suma is None or not cuenta:
+        return None
+    return suma / cuenta * 1000
+
+
 def parse_json_response(text: str) -> dict:
     """Extract JSON from LLM response, stripping markdown fences if present."""
     text = text.strip()

@@ -20,10 +20,11 @@ import time
 import requests
 import streamlit as st
 
+from agents.costos import resumen_costo
 from pages import _checkpoints
 from pages._pipeline_view import render_dos_carriles
 from schemas.caso import load_case
-from servicios.config import presupuesto_tokens_caso, url_de
+from servicios.config import precios, presupuesto_tokens_caso, url_de
 
 DIR_CASOS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "casos")
 REFRESCO_S = 4
@@ -85,6 +86,50 @@ def _barra_presupuesto(c: dict) -> None:
     st.progress(fraccion, text=f"Presupuesto: {usados:,} de {total:,} tokens")
     if c["presupuesto_agotado"]:
         st.warning("Presupuesto agotado: el Orquestador omitió pasos y el Árbitro dispuso con lo que había.")
+
+
+def _panel_costo(c: dict) -> None:
+    """
+    Costo de la corrida (Fase 4). Traduce los tokens ya medidos a dinero con la
+    tabla de precios del ConfigMap. La idea de la sesión: el Enriquecedor corre
+    en el modelo local (costo marginal ~0) y solo los que debaten justifican el
+    modelo grande, facturado al precio de un frontier asignado aunque en el lab
+    corra local (CLAUDE.md §8). Se calcula desde c['costo'] si el Orquestador lo
+    trae; si no (checkpoints viejos), se deriva de los resultados aquí mismo.
+    """
+    costo = c.get("costo")
+    if not costo:
+        resultados = c.get("resultados") or []
+        if not any(r.get("metricas") for r in resultados):
+            return
+        costo = resumen_costo(resultados, precios())
+    por_agente = [a for a in costo.get("por_agente", []) if a["agente"] != "orquestador"]
+    if not por_agente:
+        return
+
+    filas = []
+    for a in por_agente:
+        tag = "local · $0" if a["rol"] == "local" else "grande · frontier"
+        clase = "costo-local" if a["rol"] == "local" else "costo-grande"
+        filas.append(
+            f"<tr class='{clase}'><td>{e(NOMBRES.get(a['agente'], a['agente']))}</td>"
+            f"<td>{tag}</td><td style='text-align:right'>{a['prompt_tokens']:,}</td>"
+            f"<td style='text-align:right'>{a['completion_tokens']:,}</td>"
+            f"<td style='text-align:right'>${a['usd']:.4f}</td></tr>")
+    st.markdown(
+        "<div class='metric-card'><b>Costo de la deliberación</b> "
+        "<span style='color:#6b7280'>— el impuesto de contexto se paga en cada arista</span>"
+        "<table class='tabla-costo' style='width:100%;border-collapse:collapse;margin-top:.4rem'>"
+        "<tr style='color:#6b7280;font-size:.85rem'><td>Agente</td><td>Modelo</td>"
+        "<td style='text-align:right'>Prompt</td><td style='text-align:right'>Respuesta</td>"
+        "<td style='text-align:right'>USD</td></tr>"
+        f"{''.join(filas)}"
+        f"<tr style='font-weight:800;border-top:1px solid #d1d5db'><td colspan='4'>Total</td>"
+        f"<td style='text-align:right'>${costo['total_usd']:.4f}</td></tr></table>"
+        "<div style='color:#6b7280;font-size:.8rem;margin-top:.3rem'>"
+        "El modelo grande corre local en el lab; se factura al precio de un frontier asignado.</div>"
+        "</div>",
+        unsafe_allow_html=True)
 
 
 def _expediente(case_id: str) -> None:
@@ -223,6 +268,7 @@ def _corrida(c: dict) -> None:
     estado = {"en_curso": "en curso", "completada": "completada", "fallida": "fallida"}[c["estado"]]
     st.markdown(f"**Corrida** `{c['corrida_id']}` · {estado} · {duracion:.0f} s · trace `{c['trace_id'][:12]}`")
     _barra_presupuesto(c)
+    _panel_costo(c)
     if c["error"]:
         st.error(c["error"])
     _expediente(c["case_id"])

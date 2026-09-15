@@ -32,11 +32,25 @@ data:
   URL_OBSERVADOR: "http://observador:8000"
   URL_GUARDRAIL: "http://guardrail:8000"
 
+  # Backend de inferencia. "ollama" en desarrollo (CPU); "vllm" en dCloud (GPU).
+  # Cambia qué cliente usa red.LLAMAR y qué formato de salida estructurada se
+  # pide (Ollama: format=<schema>; vLLM: guided_json). Para pasar a GPU:
+  #   1. este valor a "vllm"
+  #   2. LLM_LOCAL_URL/LLM_GRANDE_URL a los Services de vllm.yaml
+  #   3. kubectl apply + rollout restart deploy
+  LLM_BACKEND: "ollama"
+
   # Modelos. En el lab local los dos apuntan al mismo contenedor de Ollama.
   # En dCloud: LLM_LOCAL_* -> vLLM con el 7B, LLM_GRANDE_* -> vLLM con el 32B.
   # Se usa qwen2.5:7b: con el 3B el debate no sostenía los roles (el Defensor
   # terminaba argumentando que había que escalar). 7B es además el tamaño que
   # el plan asigna al Enriquecedor en dCloud.
+  #
+  # En dCloud (con LLM_BACKEND=vllm) estos apuntan a los Services de vllm.yaml:
+  #   LLM_LOCAL_URL:    "http://vllm-local:8000"     LLM_LOCAL_MODELO:  "Qwen/Qwen2.5-7B-Instruct-FP8"
+  #   LLM_GRANDE_URL:   "http://vllm-grande:8000"    LLM_GRANDE_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
+  # Separar las URL es lo que permite a Cilium impedir que el Enriquecedor
+  # (local, ve datos del sujeto) alcance el modelo grande.
   LLM_LOCAL_URL: "http://ollama:11434"
   LLM_LOCAL_MODELO: "qwen2.5:7b"
   LLM_GRANDE_URL: "http://ollama:11434"
@@ -49,6 +63,16 @@ data:
   # Presupuesto de tokens por caso que aplica el Orquestador (prompt +
   # respuesta). El debate completo de aml-0042 con 7b gastó ~15.8k.
   PRESUPUESTO_TOKENS_CASO: "30000"
+
+  # Precios para el contador de costo (USD por 1,000,000 de tokens). El local
+  # es 0: corre en nuestro hardware, costo marginal ~cero (es el punto de la
+  # sesión). El grande lleva el precio de un frontier asignado, aunque en el
+  # lab corra local; se dice en pantalla. Ajustar a la tabla de precios que se
+  # quiera mostrar el día del evento.
+  PRECIO_LOCAL_ENTRADA: "0"
+  PRECIO_LOCAL_SALIDA: "0"
+  PRECIO_GRANDE_ENTRADA: "0.60"
+  PRECIO_GRANDE_SALIDA: "2.40"
   # Tiempo máximo de una llamada entre componentes. En CPU un paso con salto
   # lateral encadena dos llamadas al modelo.
   TIMEOUT_AGENTE_S: "1800"

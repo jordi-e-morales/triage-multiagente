@@ -37,11 +37,12 @@ import uuid
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from agents.costos import resumen_costo
 from agents.triage import caso_para_deliberar
 from schemas.caso import Case
 from servicios import red
 from servicios.comun import crear_app
-from servicios.config import presupuesto_tokens_caso
+from servicios.config import precios, presupuesto_tokens_caso
 
 app = crear_app("orquestador")
 
@@ -188,6 +189,11 @@ def consultar(corrida_id: str) -> dict:
         corrida = _corridas.get(corrida_id)
         if corrida is None:
             raise HTTPException(status_code=404, detail="corrida desconocida")
-        return {**corrida, "pasos": list(corrida["pasos"]), "resultados": list(corrida["resultados"]),
+        resultados = list(corrida["resultados"])
+        return {**corrida, "pasos": list(corrida["pasos"]), "resultados": resultados,
                 "llamadas": sorted(corrida["llamadas"], key=lambda ll: ll["ts_ms"]),
-                "seguridad": list(corrida["seguridad"])}
+                "seguridad": list(corrida["seguridad"]),
+                # Costo derivado de los tokens ya medidos, con la tabla de
+                # precios del ConfigMap. Es presentación sobre el presupuesto:
+                # el local sale en 0, el grande al precio de un frontier.
+                "costo": resumen_costo(resultados, precios())}

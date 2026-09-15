@@ -95,6 +95,26 @@ def modelo(rol: str) -> Modelo:
     return next(m for m in modelos() if m.rol == rol)
 
 
+def backend() -> str:
+    """Backend de inferencia: 'ollama' (CPU, desarrollo) o 'vllm' (GPU, dCloud)."""
+    return os.getenv("LLM_BACKEND", "ollama")
+
+
+def precios() -> dict:
+    """
+    Precios por 1,000,000 de tokens (USD), por rol. El local es 0 por omisión
+    (costo marginal ~cero); el grande lleva precio de frontier. Configurable con
+    PRECIO_LOCAL_ENTRADA/SALIDA y PRECIO_GRANDE_ENTRADA/SALIDA.
+    """
+    from agents.costos import Precio
+    return {
+        "local": Precio(float(os.getenv("PRECIO_LOCAL_ENTRADA", "0")),
+                        float(os.getenv("PRECIO_LOCAL_SALIDA", "0"))),
+        "grande": Precio(float(os.getenv("PRECIO_GRANDE_ENTRADA", "0.60")),
+                         float(os.getenv("PRECIO_GRANDE_SALIDA", "2.40"))),
+    }
+
+
 def presupuesto_tokens_caso() -> int:
     """
     Tokens (prompt + respuesta) que el Orquestador permite gastar por caso.

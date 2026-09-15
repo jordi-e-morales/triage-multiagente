@@ -1,0 +1,239 @@
+# Servidores de modelos para dCloud: dos instancias de vLLM sobre UN L40S.
+#
+# ESTE ARCHIVO NO SE USA EN EL LAB LOCAL. En desarrollo se usa ollama.yaml
+# (CPU). Aquí vive la Fase 4 (CLAUDE.md, sección 9): inferencia en GPU,
+# jerarquía de caché y medición real de TTFT. Se aplica solo en dCloud, y
+# solo después de poner LLM_BACKEND=vllm y los LLM_*_URL de vLLM en
+# endpoints.yaml.
+#
+# ┌─ Restricción de diseño: hay UN solo L40S (48 GB) ──────────────────────────┐
+# │ El plan (CLAUDE.md §8) pide dos modelos vivos a la vez:                     │
+# │   - local:  Qwen2.5-7B-Instruct-FP8    (~8 GB de pesos)  -> Enriquecedor   │
+# │   - grande: Qwen2.5-32B-Instruct-AWQ   (~19 GB de pesos) -> Inv/Def/Árb    │
+# │ Dos pods no pueden pedir "nvidia.com/gpu: 1" cada uno sobre una sola GPU   │
+# │ física: eso reserva GPUs enteras. Para que ambos entren en el mismo L40S  │
+# │ hay que habilitar TIME-SLICING en el device plugin de NVIDIA (una GPU     │
+# │ física expuesta como varias "réplicas"). Con eso cada pod pide 1 réplica  │
+# │ y ambos caen en el mismo L40S. El reparto real de VRAM lo fija            │
+# │ --gpu-memory-utilization (fracción del total de 48 GB por instancia):      │
+# │   local  0.22  -> ~10.5 GB (pesos 8 + algo de KV)                          │
+# │   grande 0.55  -> ~26 GB   (pesos 19 + KV grande, que es lo que hace       │
+# │                             visible la presión de memoria)                 │
+# │ Queda ~11 GB de VRAM sin asignar como colchón. Estos números se CALIBRAN  │
+# │ en dCloud: si el 32B AWQ no arranca, subir su fracción y bajar la del 7B. │
+# │                                                                            │
+# │ Habilitar time-slicing (una vez, en dCloud) está documentado en DCLOUD.md.│
+# └────────────────────────────────────────────────────────────────────────────┘
+#
+# Versiones FIJAS. vLLM + caché es la pieza más quebradiza del proyecto
+# (CLAUDE.md §9): congelar la imagen y NO actualizar antes del evento.
+#
+# Aplicar (en dCloud, tras editar endpoints.yaml):
+#   kubectl apply -f deploy/k8s/vllm.yaml
+#   kubectl -n agentes rollout status deploy/vllm-local deploy/vllm-grande
+#   kubectl -n agentes logs -f deploy/vllm-grande     # el 32B tarda en cargar
+
+# ─── Volumen compartido para los pesos descargados de Hugging Face ───────────
+# Los pesos son grandes (32B AWQ ~19 GB) y no queremos volver a bajarlos en
+# cada reinicio del pod. Viven en un PVC, igual que los modelos de Ollama.
+# ReadOnlyMany no lo soporta local-path; usamos un PVC por instancia para no
+# pelear por el montaje ReadWriteOnce.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-hf-local
+  namespace: agentes
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-hf-grande
+  namespace: agentes
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 40Gi
+
+# ─── Instancia LOCAL: el 7B que usa solo el Enriquecedor ─────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-local
+  namespace: agentes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate           # PVC ReadWriteOnce: no dos pods a la vez
+  selector:
+    matchLabels:
+      app: vllm-local
+  template:
+    metadata:
+      labels:
+        app: vllm-local
+        # rol "modelo", no "agente": las políticas de Cilium distinguen los
+        # componentes que razonan del servidor que ejecuta pesos. El
+        # Enriquecedor podrá llegar aquí; a vllm-grande, no.
+        rol: modelo
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.6.6.post1   # FIJA. No :latest.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          args:
+            - "--model=Qwen/Qwen2.5-7B-Instruct-FP8"
+            - "--served-model-name=Qwen/Qwen2.5-7B-Instruct-FP8"
+            - "--quantization=fp8"
+            - "--max-model-len=8192"
+            - "--gpu-memory-utilization=0.22"
+            # Prefix caching: reúso del prefill en VRAM entre llamadas que
+            # comparten prefijo (el expediente). Es el efecto "caliente" de las
+            # tres barras y NO es frágil: es el plan por defecto.
+            - "--enable-prefix-caching"
+            # LMCache (offload a NVMe -> barra "tibio") es opcional y frágil.
+            # Se activa por variable de entorno abajo, comentado.
+          env:
+            - name: HF_HOME
+              value: /pesos
+            # --- LMCache (PLAN A de la barra "tibio", FRÁGIL) --------------
+            # Descomentar SOLO tras validar que arranca en dCloud. Si falla,
+            # el sistema sigue con prefix-caching (barra caliente/frío) sin
+            # tocar código. Requiere el volumen 'lmcache' (emptyDir NVMe abajo).
+            # - name: LMCACHE_CONFIG_FILE
+            #   value: /etc/lmcache/lmcache.yaml
+            # - name: VLLM_USE_LMCACHE
+            #   value: "1"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 12Gi
+              nvidia.com/gpu: "1"    # 1 réplica de time-slicing (ver cabecera)
+            limits:
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          # El modelo tarda en cargar; no mandar tráfico hasta que /health pase.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 60     # hasta ~10 min para cargar pesos
+          volumeMounts:
+            - name: pesos
+              mountPath: /pesos
+            - name: shm
+              mountPath: /dev/shm    # vLLM usa memoria compartida grande
+      volumes:
+        - name: pesos
+          persistentVolumeClaim:
+            claimName: vllm-hf-local
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-local
+  namespace: agentes
+spec:
+  selector:
+    app: vllm-local
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+# ─── Instancia GRANDE: el 32B que hace de "frontier" (Inv/Def/Árbitro) ───────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-grande
+  namespace: agentes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vllm-grande
+  template:
+    metadata:
+      labels:
+        app: vllm-grande
+        rol: modelo
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.6.6.post1   # FIJA. No :latest.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          args:
+            - "--model=Qwen/Qwen2.5-32B-Instruct-AWQ"
+            - "--served-model-name=Qwen/Qwen2.5-32B-Instruct-AWQ"
+            - "--quantization=awq_marlin"
+            - "--max-model-len=16384"
+            # Fracción mayor: aquí vive la KV caché grande, la que hace visible
+            # la presión de memoria en el Demo 1. Calibrar en dCloud.
+            - "--gpu-memory-utilization=0.55"
+            - "--enable-prefix-caching"
+          env:
+            - name: HF_HOME
+              value: /pesos
+            # LMCache: mismo criterio que en vllm-local (comentado, frágil).
+            # - name: LMCACHE_CONFIG_FILE
+            #   value: /etc/lmcache/lmcache.yaml
+            # - name: VLLM_USE_LMCACHE
+            #   value: "1"
+          resources:
+            requests:
+              cpu: "4"
+              memory: 28Gi
+              nvidia.com/gpu: "1"
+            limits:
+              memory: 36Gi
+              nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 90     # el 32B tarda más en cargar
+          volumeMounts:
+            - name: pesos
+              mountPath: /pesos
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: pesos
+          persistentVolumeClaim:
+            claimName: vllm-hf-grande
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-grande
+  namespace: agentes
+spec:
+  selector:
+    app: vllm-grande
+  ports:
+    - port: 8000
+      targetPort: 8000
