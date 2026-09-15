@@ -34,7 +34,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: orquestador
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           # Never: la imagen se carga en kind con `kind load`; no existe en
           # ningún registro remoto y no queremos que el nodo intente bajarla.
           imagePullPolicy: Never
@@ -88,7 +88,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: enriquecedor
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: enriquecedor}
@@ -136,7 +136,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: investigador
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: investigador}
@@ -184,7 +184,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: defensor
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: defensor}
@@ -232,7 +232,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: arbitro
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: arbitro}
@@ -282,7 +282,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: registro
-          image: triage-agentes:0.5.0
+          image: triage-agentes:0.6.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: registro}

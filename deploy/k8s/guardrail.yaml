@@ -1,0 +1,64 @@
+# Guardrail de contenido (capa sustituta de Cisco AI Defense).
+# El Enriquecedor le manda el texto externo antes de normalizar.
+#
+# rol: content -> no es agente ni registro. Solo recibe del Enriquecedor y no
+# llama a nadie (el modelo va dentro de la imagen).
+#
+# Requiere la imagen triage-guardrail cargada en kind (ver Dockerfile.guardrail).
+# NO entra en `kubectl apply -f deploy/k8s/` porque su imagen se construye aparte
+# con el modelo gated; se aplica a mano en el Demo 2.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardrail
+  namespace: agentes
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: guardrail}
+  template:
+    metadata:
+      labels: {app: guardrail, rol: content}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: guardrail
+          image: triage-guardrail:0.5.0
+          imagePullPolicy: Never
+          env:
+            # torch/transformers escriben caché en $HOME; apuntar a /tmp escribible.
+            - {name: HOME, value: /tmp}
+          envFrom:
+            - configMapRef: {name: endpoints}
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: {path: /salud, port: 8000}
+            # El modelo tarda en cargar la primera vez; margen antes de marcar listo.
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests: {cpu: "1", memory: 900Mi}
+            # torch + modelo 22M en fp32: ~1.3 GB. Límite con margen.
+            limits: {memory: 1800Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            # transformers/torch escriben caché en $HOME; el FS es de solo lectura.
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardrail
+  namespace: agentes
+spec:
+  selector: {app: guardrail}
+  ports:
+    - {port: 8000, targetPort: 8000}

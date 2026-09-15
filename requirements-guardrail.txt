@@ -1,0 +1,11 @@
+# Dependencias de la imagen del guardrail (capa de contenido).
+# Son las versiones con las que se validó el clasificador en Windows.
+# torch va en su rueda CPU (sin CUDA); se instala en el Dockerfile aparte con
+# --index-url para no arrastrar los ~2 GB de CUDA.
+# sentencepiece no hace falta: el modelo trae tokenizer.json (tokenizer rápido).
+transformers==4.52.1
+tokenizers==0.21.1
+safetensors==0.5.3
+fastapi==0.115.12
+uvicorn==0.34.2
+pydantic==2.11.4

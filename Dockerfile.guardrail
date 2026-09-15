@@ -1,0 +1,36 @@
+# Imagen del guardrail de contenido (capa sustituta de Cisco AI Defense).
+# Trae PyTorch (CPU), transformers y el modelo Prompt Guard 2 (22M) dentro.
+#
+# El modelo es "gated" en Hugging Face: NO se redistribuye. Esta imagen se
+# construye solo en el lab, con el modelo que el usuario descargó, y no se sube
+# a ningún registro.
+#
+# Construir (dentro de la VM, en un contexto que tenga el repo y ./modelo):
+#   docker build -f Dockerfile.guardrail -t triage-guardrail:0.5.0 .
+#   kind load docker-image triage-guardrail:0.5.0 --name agentes --nodes agentes-worker
+
+FROM python:3.13-slim@sha256:cc9dffa47c8294ba9bb795a8dfaeb7b76f2b30acade2c52a461a2999d127eb00
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    MODELO_GUARDRAIL=/modelo
+
+WORKDIR /app
+
+# torch CPU primero, desde el índice de ruedas sin CUDA (evita ~2 GB de GPU).
+RUN pip install --no-cache-dir torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+COPY requirements-guardrail.txt .
+RUN pip install --no-cache-dir -r requirements-guardrail.txt
+
+# Código: solo lo que usa el guardrail.
+COPY servicios/__init__.py servicios/comun.py servicios/guardrail.py servicios/
+# Modelo descargado (gated). Debe estar en ./modelo en el contexto de build.
+COPY modelo/ /modelo/
+
+RUN useradd --uid 10001 --no-create-home guardrail
+USER 10001
+
+EXPOSE 8000
+CMD ["uvicorn", "servicios.guardrail:app", "--host", "0.0.0.0", "--port", "8000"]

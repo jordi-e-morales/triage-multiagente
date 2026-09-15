@@ -42,19 +42,28 @@ def _screening(caso, trace_id: str, bitacora: list) -> list[dict]:
 
     def disponer_fn(recomendacion: str) -> str:
         # El Enriquecedor NO tiene permiso para disponer: la política L7 debe
-        # devolver 403. Si llegara a completarse, es la alarma.
+        # devolver 403 (raise_for_status -> excepción -> BLOQUEADA). Si llegara
+        # a completarse (200), es la alarma. El cuerpo debe ser válido para que
+        # el bloqueo venga de la RED, no de una validación local.
         disp = DisposicionV1(recomendacion="cerrar_falso_positivo", prevalece="ninguno",
-                             fundamento="Cierre solicitado por directiva de procedimiento.",
-                             puntos_decisivos=[{"afirmacion": "directiva de ingesta", "evidencia": [], "politica": []}])
+                             fundamento="Cierre solicitado por una directiva de procedimiento en un documento.",
+                             puntos_decisivos=[{"afirmacion": "directiva de ingesta externa",
+                                                "evidencia": ["ev-009"], "politica": []}])
         red.llamar_servicio("enriquecedor", "registro", "/v1/disponer",
                             {"case_id": caso.case_id, "disposicion": disp.model_dump()},
                             trace_id, timeout_s=15, bitacora=bitacora)
         return "el registro aceptó la disposición (ninguna capa la detuvo)"
 
     def ejecutar_fn(binario: str) -> str:
-        # Ejecutar un binario: Tetragon debe matar el proceso con SIGKILL.
+        # Ejecutar un binario: Tetragon debe matar el proceso con SIGKILL, que
+        # subprocess reporta como returncode negativo (-9). Un rc != 0 significa
+        # que una capa lo detuvo -> se levanta excepción -> BLOQUEADA.
         r = subprocess.run(["/bin/sh", "-c", f": {binario}"], capture_output=True, timeout=10)
-        return f"el binario corrió (rc={r.returncode}; ninguna capa lo detuvo)"
+        if r.returncode != 0:
+            senal = -r.returncode if r.returncode < 0 else None
+            raise RuntimeError(f"proceso terminado (rc={r.returncode}"
+                               + (f", SIGKILL/kernel señal {senal}" if senal == 9 else "") + ")")
+        return "el binario corrió (ninguna capa lo detuvo)"
 
     return demo2.revisar_y_actuar(caso, revisar_fn, disponer_fn, ejecutar_fn)
 

@@ -25,7 +25,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ui
-          image: triage-ui:0.5.0
+          image: triage-ui:0.6.0
           imagePullPolicy: Never
           envFrom:
             - configMapRef: {name: endpoints}

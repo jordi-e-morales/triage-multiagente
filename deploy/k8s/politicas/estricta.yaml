@@ -45,7 +45,7 @@ spec:
   description: "Todos los componentes pueden resolver nombres con el DNS del cluster"
   endpointSelector:
     matchExpressions:
-      - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, ui, observador]}
+      - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, ui, observador, guardrail]}
   egress:
     - toEndpoints:
         - matchLabels:
@@ -125,10 +125,49 @@ spec:
         - matchLabels: {app: registro}
       toPorts:
         - ports: [{port: "8000", protocol: TCP}]
+    # Al guardrail: le manda el texto externo a revisar antes de normalizar.
+    - toEndpoints:
+        - matchLabels: {app: guardrail}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
     - toEndpoints:
         - matchLabels: {app: ollama}
       toPorts:
         - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Guardrail (capa de contenido, no es agente) ═════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: guardrail
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: guardrail}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: enriquecedor}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/revisar"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/v1/info"}
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  # Sin egress propio salvo DNS (base-dns): el modelo va dentro del pod, no
+  # llama a nadie. Eso es parte del punto: la capa de contenido no sale a la red.
 ---
 # ═══ Investigador ════════════════════════════════════════════════════════════
 apiVersion: cilium.io/v2
@@ -352,7 +391,7 @@ spec:
   egress:
     - toEndpoints:
         - matchExpressions:
-            - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, observador]}
+            - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, observador, guardrail]}
       toPorts:
         - ports: [{port: "8000", protocol: TCP}]
     - toEndpoints:
