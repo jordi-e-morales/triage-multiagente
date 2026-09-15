@@ -106,22 +106,43 @@ class TestCapturaRealL7(unittest.TestCase):
         em = ProtocolEmitter()
         self.assertEqual(kernel_watch.alimentar(em, _lineas_l7(), ignorar_sondas=False), 4)
 
-    def test_respuesta_denegada_hereda_traza_y_extremos(self):
-        # Forma de la DENEGACIÓN construida a partir de la respuesta real (code
-        # 403 en vez de 200). PENDIENTE: validar con captura real en la Fase 3.
-        peticion, _, respuesta = _lineas_l7()[0], None, json.loads(_lineas_l7()[2])
-        respuesta["flow"]["l7"]["http"]["code"] = 403
-        respuesta["flow"]["uuid"] = "respuesta-403"
-        request_id = kernel_watch._cabecera(json.loads(peticion)["flow"]["l7"]["http"], "x-request-id")
-        for h in respuesta["flow"]["l7"]["http"]["headers"]:
-            if h["key"].lower() == "x-request-id":
-                h["value"] = request_id
+FIXTURE_403 = os.path.join(os.path.dirname(FIXTURE), "hubble_l7_403.jsonl")
+
+
+def _lineas_403():
+    with open(FIXTURE_403, encoding="utf-8") as f:
+        return f.read().splitlines()
+
+
+class TestCapturaReal403(unittest.TestCase):
+    """
+    Captura real con la política estricta: el Enriquecedor intenta
+    POST /v1/disponer (403) y POST /v1/anexar (permitido, 422 por cuerpo vacío).
+    Orden: petición DROPPED, respuesta 403, petición anexar, respuesta 422.
+    """
+
+    def test_una_denegacion_se_reporta_una_vez(self):
         em = ProtocolEmitter()
-        kernel_watch.alimentar(em, [peticion, json.dumps(respuesta)])
-        denegado = [e for e in em.security_events if e["verdict"] == "HTTP_403"][0]
-        self.assertEqual(denegado["source"], "agentes/orquestador")      # invertido: quien pidió
-        self.assertEqual(denegado["detail"]["destino"], "agentes/registro")
-        self.assertTrue(denegado["trace_id"].startswith("pruebal7"))    # por X-Request-Id
+        kernel_watch.alimentar(em, _lineas_403())
+        denegados = [e for e in em.security_events if e["verdict"] == "HTTP_403"]
+        self.assertEqual(len(denegados), 1)
+        d = denegados[0]
+        self.assertEqual(d["source"], "agentes/enriquecedor")
+        self.assertEqual(d["detail"]["destino"], "agentes/registro")
+        self.assertEqual(d["action"], "POST http://registro:8000/v1/disponer")
+        self.assertEqual(d["trace_id"], "sonda-politica")        # de la petición DROPPED
+
+    def test_la_arista_legitima_sigue_pasando(self):
+        em = ProtocolEmitter()
+        kernel_watch.alimentar(em, _lineas_403())
+        permitidos = [e for e in em.security_events if e["verdict"] == "FORWARDED"]
+        self.assertEqual([e["action"] for e in permitidos], ["POST http://registro:8000/v1/anexar"])
+
+    def test_orden_inverso_tambien_una_vez(self):
+        lineas = _lineas_403()
+        em = ProtocolEmitter()
+        kernel_watch.alimentar(em, [lineas[1], lineas[0]])       # respuesta 403 antes que la petición
+        self.assertEqual(sum(e["verdict"] == "HTTP_403" for e in em.security_events), 1)
 
 
 if __name__ == "__main__":

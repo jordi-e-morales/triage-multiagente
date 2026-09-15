@@ -32,8 +32,11 @@ Estado de validación (honesto):
   code=0; la respuesta trae code, NO trae X-Trace-Id, y su source/destination
   están invertidos (source = quien responde). Petición y respuesta comparten
   X-Request-Id, que agrega Envoy.
-- L7 DENEGADO (403 por política): PENDIENTE de validar con captura real en la
-  Fase 3, cuando exista una política que niegue algo.
+- L7 DENEGADO: captura real con la política estricta
+  (tests/fixtures/hubble_l7_403.jsonl, 2026-09-14). Una denegación produce DOS
+  flujos: la PETICIÓN con verdict=DROPPED (trae X-Trace-Id) y una RESPUESTA
+  FORWARDED con code=403 generada por Envoy (sin traza). Comparten
+  X-Request-Id. Se reporta una sola vez.
 """
 from __future__ import annotations
 
@@ -150,7 +153,7 @@ def flujo_a_evento(registro: dict) -> dict | None:
             # originó el otro extremo, así que se invierten.
             origen, destino = destino, origen
         if codigo == 403 or veredicto == "DROPPED":
-            verdict = "HTTP_403"             # denegado (forma real pendiente de validar, Fase 3)
+            verdict = "HTTP_403"             # denegado por la política L7 (Envoy responde 403)
         elif not es_respuesta:
             verdict = "FORWARDED"
         else:
@@ -187,6 +190,7 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
     """
     vistos: set = set()
     traza_por_request_id: dict[str, str] = {}
+    denegados: set[str] = set()   # X-Request-Id de denegaciones ya reportadas
     emitidos = 0
     for linea in lineas:
         # En modo continuo (observador en el cluster) el flujo no termina:
@@ -195,6 +199,8 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
             vistos.clear()
         if len(traza_por_request_id) > MAX_MEMORIA:
             traza_por_request_id.clear()
+        if len(denegados) > MAX_MEMORIA:
+            denegados.clear()
         linea = linea.strip()
         if not linea:
             continue
@@ -213,6 +219,12 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
         if ignorar_sondas and ev["verdict"] == "FORWARDED" and (
                 ev["source"] == "reserved:host" or _es_ruta_de_salud(url)):
             continue
+        # Una denegación = petición DROPPED + respuesta 403 con el mismo
+        # X-Request-Id (captura real). Se reporta la primera que llegue.
+        if ev["verdict"] == "HTTP_403" and request_id:
+            if request_id in denegados:
+                continue
+            denegados.add(request_id)
         clave = ev.pop("_clave")
         if clave in vistos:
             continue

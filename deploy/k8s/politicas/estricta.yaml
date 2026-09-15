@@ -1,0 +1,378 @@
+# Política estricta (Fase 3): la tabla de contratos de CLAUDE.md, sección 3,
+# convertida en reglas de Cilium.
+#
+#   | Servicio     | Ruta               | Quién puede llamarla      |
+#   | enriquecedor | POST /v1/enriquecer | orquestador              |
+#   | investigador | POST /v1/argumentar | orquestador, defensor    |
+#   | defensor     | POST /v1/objetar    | orquestador, investigador|
+#   | arbitro      | POST /v1/deliberar  | orquestador              |
+#   | registro     | POST /v1/anexar     | los cuatro agentes (+ orquestador) |
+#   | registro     | POST /v1/disponer   | SOLO arbitro             |
+#
+# Cómo leerla:
+# - ENTRADA con reglas L7 (método + ruta): Envoy responde 403 a lo que no esté
+#   en la lista, AUNQUE el par origen-destino sí tenga permiso. Esa es la
+#   lección del Demo 2: el Enriquecedor tiene arista legítima al registro
+#   (anexar), y aun así /v1/disponer le devuelve 403.
+# - SALIDA solo L3/L4: cada pod solo puede abrir conexiones hacia quien la
+#   tabla dice. Nadie puede salir a internet (exfiltración bloqueada).
+# - Cilium SUMA las políticas que seleccionan un pod: si `visibilidad-l7` sigue
+#   aplicada, su "cualquier HTTP" anula esta. Al aplicar esta, borrar aquella.
+#
+# Además de la tabla (necesario para operar, no para deliberar):
+# - GET /salud desde el host (sondas del kubelet) y desde la UI (página Admin).
+# - UI -> orquestador: POST /v1/casos, GET /v1/corridas/<id>.
+# - UI -> observador: GET /v1/eventos, GET /v1/estado.
+# - UI -> registro: GET /v1/casos/<id> (lectura).
+# - Observador -> hubble-relay (kube-system, 4245).
+# - Todos -> DNS del cluster.
+# - Ollama: entrada solo desde los cuatro agentes, la UI y el Job de descarga;
+#   su salida NO se restringe aquí para que pueda bajar modelos en desarrollo.
+#
+# Aplicar (sustituye a la de visibilidad):
+#   kubectl apply  -f deploy/k8s/politicas/estricta.yaml
+#   kubectl delete -f deploy/k8s/politicas/visibilidad-l7.yaml
+# Comprobar sin modelo:
+#   bash herramientas/probar_politica.sh
+
+# ═══ Base: DNS para todos los componentes ════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: base-dns
+  namespace: agentes
+spec:
+  description: "Todos los componentes pueden resolver nombres con el DNS del cluster"
+  endpointSelector:
+    matchExpressions:
+      - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, ui, observador]}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - {port: "53", protocol: UDP}
+            - {port: "53", protocol: TCP}
+---
+# ═══ Orquestador ═════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: orquestador
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: orquestador}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/casos"}
+              - {method: GET, path: "/v1/corridas/[a-z0-9]+"}
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [enriquecedor, investigador, defensor, arbitro, registro]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+---
+# ═══ Enriquecedor ════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: enriquecedor
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: enriquecedor}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: orquestador}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/enriquecer"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    # Arista legítima al registro: la necesita para anexar procedencia. Es la
+    # misma arista que el ataque intenta usar para /v1/disponer.
+    - toEndpoints:
+        - matchLabels: {app: registro}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ollama}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Investigador ════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: investigador
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: investigador}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [orquestador, defensor]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/argumentar"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    # Salto lateral: el Investigador llama directo al Defensor.
+    - toEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [defensor, registro]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ollama}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Defensor ════════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: defensor
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: defensor}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [orquestador, investigador]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/objetar"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    # La tabla permite al Defensor llamar al Investigador.
+    - toEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [investigador, registro]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ollama}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Árbitro ═════════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: arbitro
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: arbitro}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: orquestador}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/deliberar"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: registro}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ollama}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Registro (no es agente) ═════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: registro
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: registro}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/anexar"}
+    # La fila que es todo el Demo 2: solo el Árbitro dispone.
+    - fromEndpoints:
+        - matchLabels: {app: arbitro}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: POST, path: "/v1/disponer"}
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+              - {method: GET, path: "/v1/casos/.+"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  # Sin reglas de salida propias: base-dns ya lo selecciona para salida, así que
+  # todo lo que no sea DNS queda bloqueado. El registro no llama a nadie.
+---
+# ═══ Observador ══════════════════════════════════════════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: observador
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: observador}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: ui}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/v1/eventos"}
+              - {method: GET, path: "/v1/estado"}
+              - {method: GET, path: "/salud"}
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+          rules:
+            http:
+              - {method: GET, path: "/salud"}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: hubble-relay
+      toPorts:
+        - ports: [{port: "4245", protocol: TCP}]
+---
+# ═══ UI ══════════════════════════════════════════════════════════════════════
+# Sin regla de entrada: el acceso desde Windows es por port-forward, que entra
+# directo al pod y no pasa por la política.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ui
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: ui}
+  ingress:
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "8501", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [orquestador, enriquecedor, investigador, defensor, arbitro, registro, observador]}
+      toPorts:
+        - ports: [{port: "8000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ollama}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+# ═══ Ollama (servidor de modelos, solo desarrollo) ═══════════════════════════
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ollama
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: ollama}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - {key: app, operator: In, values: [enriquecedor, investigador, defensor, arbitro, ui, ollama-descarga]}
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+    - fromEntities: [host]
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]

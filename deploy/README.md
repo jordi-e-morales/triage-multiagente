@@ -19,7 +19,9 @@ kubectl -n agentes rollout status deploy/ollama
 kubectl -n agentes wait --for=condition=complete job/ollama-descarga --timeout=1500s
 
 # 4. Comprobar desde dentro del cluster que todo responde
-kubectl -n agentes exec deploy/orquestador -- python -m servicios.verificar
+#    Desde la UI: con la política estricta es el único pod que puede
+#    consultar la salud de todos los componentes.
+kubectl -n agentes exec deploy/ui -- python -m servicios.verificar
 
 # 5. Abrir la UI desde Windows (escucha en la IP de la VM)
 kubectl -n agentes port-forward --address 0.0.0.0 svc/ui 8501:8501
@@ -39,10 +41,16 @@ lanzarlo.
 una política cambia qué tráfico pasa.
 
 ```bash
-# Visibilidad L7 (Fase 2): Hubble ve método, ruta y X-Trace-Id. No bloquea nada legítimo.
-kubectl apply -f deploy/k8s/politicas/visibilidad-l7.yaml
-# Comprobar con tráfico de prueba (no llama al modelo):
-kubectl -n agentes exec -i deploy/orquestador -- python - < herramientas/prueba_l7.py
+# Fase 3 (vigente): la tabla de contratos. Incluye la visibilidad L7. La
+# política de visibilidad sola debe borrarse: Cilium suma políticas y su
+# "cualquier HTTP" anularía las restricciones de ruta.
+kubectl apply -f deploy/k8s/politicas/estricta.yaml
+kubectl delete -f deploy/k8s/politicas/visibilidad-l7.yaml --ignore-not-found
+# Comprobar con la matriz (22 casos, no llama al modelo):
+bash herramientas/probar_politica.sh
+
+# Fase 2 (histórica): solo visibilidad, sin restringir rutas.
+# kubectl apply -f deploy/k8s/politicas/visibilidad-l7.yaml
 ```
 
 Requiere `envoy.streamIdleTimeoutDurationSeconds=1800` en Cilium (lo pone
