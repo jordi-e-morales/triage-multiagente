@@ -1,0 +1,29 @@
+# Services que representan a vLLM (que corre en el HOST, no en un pod) dentro del
+# cluster. No tienen `selector`: sus Endpoints los crea vllm-up.sh con la IP del
+# host, porque esa IP cambia en cada reconstrucción del lab.
+#
+# Gracias a esto, los agentes siguen llamando a http://vllm-local:8000 y
+# http://vllm-grande:8000 igual que a cualquier otro Service; no saben que el
+# modelo vive fuera del cluster.
+#
+# targetPort = el puerto donde vLLM escucha en el host (18001 el 7B, 18000 el
+# 32B). La política de egress (vllm-host-egress.yaml) acota por esos puertos.
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-local
+  namespace: agentes
+spec:
+  ports:
+    - port: 8000
+      targetPort: 18001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-grande
+  namespace: agentes
+spec:
+  ports:
+    - port: 8000
+      targetPort: 18000

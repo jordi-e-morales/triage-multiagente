@@ -55,58 +55,55 @@ kubectl apply -f deploy/k8s/guardrail.yaml
 ## 5. Modelo de lenguaje: aquí sí hay GPU (Fase 4)
 
 En el lab local se usa Ollama en CPU (`deploy/k8s/ollama.yaml`). En dCloud eso
-se sustituye por vLLM en la L40S. El código y los manifiestos ya están (backend
-vLLM en `agents/llm_provider.py`, contador de costo en `agents/costos.py`,
-`deploy/k8s/vllm.yaml`); en dCloud queda **desplegar, calibrar y medir**.
+se sustituye por vLLM en la L40S. El código ya está (backend vLLM en
+`agents/llm_provider.py`, contador de costo en `agents/costos.py`); en dCloud
+queda **desplegar, calibrar y medir**.
 
-### 5.1 Habilitar el reparto de la GPU (time-slicing)
+**vLLM corre en el HOST, no en pods.** Meter la GPU dentro de kind (device
+plugin + time-slicing) es la pieza más frágil del proyecto; en cambio, correr
+vLLM en el host y apuntar los pods a la IP del host es lo que el propio
+CLAUDE.md §8 ya permite (igual que Ollama en el host en desarrollo). Los agentes
+no se enteran: siguen llamando a `http://vllm-local:8000` y
+`http://vllm-grande:8000`, que son Services que redirigen al host.
 
-Hay UN solo L40S (48 GB) y queremos dos instancias de vLLM vivas a la vez (7B y
-32B). Dos pods no pueden pedir una GPU entera cada uno, así que se expone el
-L40S como varias "réplicas" con el device plugin de NVIDIA. Una sola vez:
+Requisito: el host debe ver la GPU (`nvidia-smi` responde) y tener el **NVIDIA
+Container Toolkit** para que `docker run --gpus all` funcione. Comprobar:
 
 ```bash
-cat >/tmp/time-slicing.yaml <<'EOF'
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: time-slicing
-  namespace: nvidia-device-plugin
-data:
-  any: |-
-    version: v1
-    sharing:
-      timeSlicing:
-        resources:
-          - name: nvidia.com/gpu
-            replicas: 4        # 1 GPU física -> 4 solicitables (nos bastan 2)
-EOF
-kubectl apply -f /tmp/time-slicing.yaml
-# reconfigurar el plugin para que use el ConfigMap (según cómo se instaló:
-# helm upgrade ... --set-json config.name=time-slicing, o editar el DaemonSet)
-kubectl -n agentes get nodes -o json | grep nvidia.com/gpu   # debe verse 4, no 1
+nvidia-smi                                   # la L40S debe aparecer
+docker run --rm --gpus all $VLLM_IMAGEN nvidia-smi   # Docker ve la GPU
 ```
 
-El reparto real de VRAM lo fija `--gpu-memory-utilization` en `vllm.yaml`
-(local 0.22, grande 0.55): time-slicing solo permite que ambos pods *entren* en
-el mismo L40S; no divide la memoria por sí solo.
+Si el segundo falla, instalar el toolkit (una vez, va a `lab/bootstrap.sh`):
 
-### 5.2 Bajar pesos y desplegar vLLM
+```bash
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+### 5.1 Levantar las dos instancias de vLLM en el host
+
+Un solo script hace todo: arranca los dos contenedores repartiendo el L40S
+(7B en `:18001`, 32B en `:18000`), espera a que respondan, calcula la IP del
+host para el cluster y crea los Services `vllm-local` / `vllm-grande`.
+
+```bash
+bash deploy/vllm-host/vllm-up.sh
+```
 
 Qwen2.5 no es gated (a diferencia del guardrail): vLLM baja los pesos de Hugging
-Face al arrancar, al PVC de cada instancia. El 32B AWQ (~19 GB) tarda.
+Face al arrancar, a `~/.cache/huggingface` (se conserva entre reinicios del
+contenedor; se re-baja tras una reconstrucción del lab). El 32B AWQ (~19 GB)
+tarda varios minutos la primera vez. Vigilar con `docker logs -f vllm-grande`.
 
-```bash
-kubectl apply -f deploy/k8s/vllm.yaml
-kubectl -n agentes rollout status deploy/vllm-local  --timeout=10m
-kubectl -n agentes rollout status deploy/vllm-grande --timeout=20m
-kubectl -n agentes logs -f deploy/vllm-grande        # vigilar la carga de pesos
-```
+El reparto de VRAM lo fijan las fracciones (`0.22` local, `0.55` grande; suman
+0.77 y dejan ~11 GB de colchón). Si el 32B no arranca por memoria, bajarlas con
+`VLLM_FRAC_GRANDE=0.60 VLLM_FRAC_LOCAL=0.18 bash deploy/vllm-host/vllm-up.sh`.
 
-Si el 32B no arranca por VRAM, subir su `--gpu-memory-utilization` y bajar el
-del 7B en `vllm.yaml`, y re-aplicar.
+Apagar todo: `bash deploy/vllm-host/vllm-down.sh`.
 
-### 5.3 Apuntar los agentes a vLLM
+### 5.2 Apuntar los agentes a vLLM
 
 En `deploy/k8s/endpoints.yaml`:
 
@@ -126,6 +123,20 @@ kubectl -n agentes rollout restart deploy      # las variables se leen al arranc
 `LLM_BACKEND=vllm` hace que `red.LLAMAR` use el cliente vLLM (salida estructurada
 por `guided_json` en vez de `format` de Ollama) y que cada llamada mida el TTFT.
 
+### 5.3 Permitir (y acotar) el egress a los modelos
+
+vLLM en el host obliga a reexpresar la separación de la matriz de permisos por
+**puerto del host**: el Enriquecedor solo puede abrir el 18001 (local), los que
+debaten solo el 18000 (grande).
+
+```bash
+kubectl apply -f deploy/k8s/politicas/vllm-host-egress.yaml
+```
+
+Se aplica ADEMÁS de `estricta.yaml`. Si el modelo no responde pero un `curl`
+directo al host sí, ver la nota de clasificación `host`/`world` dentro del
+archivo (cambiar `toEntities: [host]` por el CIDR que imprime `vllm-up.sh`).
+
 ### 5.4 Calibrar las tres barras de caché (frío / tibio / caliente)
 
 El TTFT sale de las métricas Prometheus de vLLM, no se estima
@@ -137,8 +148,7 @@ de `UmbralesCache` (`agents/costos.py`):
 3. Con LMCache activo, tras desalojar de VRAM → lectura de NVMe = **tibio**.
 
 ```bash
-kubectl -n agentes exec deploy/vllm-grande -- \
-  sh -c 'curl -s localhost:8000/metrics | grep time_to_first_token'
+curl -s http://127.0.0.1:18000/metrics | grep time_to_first_token   # 32B, en el host
 ```
 
 Ajustar `caliente_max_ms` y `tibio_max_ms` a lo medido.
@@ -153,11 +163,11 @@ tabla de precios que se mostrará en el evento en `endpoints.yaml`
 ### 5.6 LMCache (offload a NVMe) — la barra "tibio", frágil
 
 vLLM + LMCache es la pieza más quebradiza (CLAUDE.md §9). Está **desactivado por
-defecto**: `vllm.yaml` corre con `--enable-prefix-caching` (reúso en VRAM, sin
+defecto**: `vllm-up.sh` arranca con `--enable-prefix-caching` (reúso en VRAM, sin
 disco), que da las barras caliente/frío sin riesgo. Para intentar la barra
-"tibio", descomentar los bloques `LMCACHE_*` de `vllm.yaml`, montar el volumen
-NVMe y validar que arranca. **Si falla, dejarlo apagado**: el resto de la Fase 4
-no depende de LMCache.
+"tibio", agregar la configuración de LMCache al `docker run` (variables
+`LMCACHE_*` y un volumen en NVMe) y validar que arranca. **Si falla, dejarlo
+apagado**: el resto de la Fase 4 no depende de LMCache.
 
 ## 6. Aplicar las políticas de seguridad y comprobar
 
