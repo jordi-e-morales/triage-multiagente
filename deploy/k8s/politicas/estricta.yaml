@@ -315,7 +315,9 @@ spec:
         - ports: [{port: "8000", protocol: TCP}]
           rules:
             http:
-              - {method: GET, path: "/v1/eventos"}
+              # La ruta se compara COMPLETA, con la query string incluida:
+              # "/v1/eventos" no deja pasar "/v1/eventos?desde_ms=...".
+              - {method: GET, path: "/v1/eventos(\\?.*)?"}
               - {method: GET, path: "/v1/estado"}
               - {method: GET, path: "/salud"}
     - fromEntities: [host]

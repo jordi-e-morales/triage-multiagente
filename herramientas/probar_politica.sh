@@ -40,6 +40,8 @@ probar enriquecedor PASA POST http://registro:8000/v1/anexar
 probar arbitro      PASA POST http://registro:8000/v1/disponer
 probar ui           PASA POST http://orquestador:8000/v1/casos
 probar ui           PASA GET  http://observador:8000/v1/estado
+# Con query string: la regla L7 compara la ruta completa (bug encontrado así).
+probar ui           PASA GET  "http://observador:8000/v1/eventos?desde_ms=0&trace_id=x"
 probar ui           PASA GET  http://registro:8000/salud
 
 echo "=== El Demo 2: arista legítima, ruta ilegítima (debe ser 403 de capa 7)"
