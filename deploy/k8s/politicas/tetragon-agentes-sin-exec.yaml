@@ -1,0 +1,51 @@
+# Control de KERNEL (Tetragon): un agente no ejecuta binarios. Nunca.
+#
+# Qué hace: engancha el punto del kernel donde se autoriza ejecutar un
+# programa (security_bprm_creds_for_exec, un hook de LSM). Si quien intenta
+# ejecutar es el intérprete de Python de un pod con `rol: agente`, Tetragon
+# le manda SIGKILL ANTES de que el programa nuevo corra.
+#
+# Por qué así:
+# - Los agentes son procesos Python (uvicorn). Ninguna función legítima de un
+#   agente necesita lanzar otro programa. Si uno lo intenta, es porque algo lo
+#   convenció de hacerlo (el Demo 2).
+# - Se filtra por el binario QUE EJECUTA, no por el que se quiere ejecutar: así
+#   no hay lista de "binarios peligrosos" que mantener ni que esquivar
+#   usando un binario distinto.
+# - El arranque del contenedor NO se ve afectado: ahí quien ejecuta es runc y
+#   luego `sh` (CMD del Dockerfile), no Python.
+# - Con subprocess, Python primero se clona (fork) y el clon intenta el exec.
+#   Tetragon mata al CLON: el servicio del agente sigue vivo y la herramienta
+#   recibe "terminado por la señal 9". El evento queda registrado.
+#
+# Honestidad: esto NO adivina intenciones. Aplica una regla. Por eso no falla
+# cuando el clasificador de contenido sí falla.
+#
+# Si cambia la imagen base, revisar la ruta del intérprete:
+#   kubectl -n agentes exec deploy/enriquecedor -- readlink -f /proc/1/exe
+#
+# Aplicar / quitar:
+#   kubectl apply  -f deploy/k8s/politicas/tetragon-agentes-sin-exec.yaml
+#   kubectl delete -f deploy/k8s/politicas/tetragon-agentes-sin-exec.yaml
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: agentes-sin-exec
+  namespace: agentes
+spec:
+  podSelector:
+    matchLabels:
+      rol: agente
+  kprobes:
+    - call: "security_bprm_creds_for_exec"
+      syscall: false
+      args:
+        - index: 0
+          type: "linux_binprm"
+      selectors:
+        - matchBinaries:
+            - operator: "In"
+              values:
+                - "/usr/local/bin/python3.13"
+          matchActions:
+            - action: Sigkill
