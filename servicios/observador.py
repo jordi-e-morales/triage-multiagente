@@ -1,9 +1,12 @@
 """
 Observador: el carril derecho en el cluster.
 
-Sigue en vivo `hubble observe` contra el relay de Hubble, traduce cada flujo
-con protocols/kernel_watch y guarda los eventos de seguridad en memoria. La UI
-los pide por HTTP para alinearlos con las llamadas de una corrida.
+Sigue dos fuentes en vivo y guarda los eventos de seguridad en memoria:
+- red (Cilium): `hubble observe` contra el relay de Hubble.
+- kernel (Tetragon): el archivo de eventos que Tetragon escribe en el nodo,
+  montado en solo lectura (TETRAGON_EVENTOS).
+Ambas se traducen con protocols/kernel_watch. La UI pide los eventos por HTTP
+para alinearlos con las llamadas de una corrida.
 
 NO es agente: no ve casos, no llama al modelo, no escribe en el Registro. Solo
 lee lo que Cilium ya observó. Su única salida de red es hacia hubble-relay.
@@ -36,7 +39,9 @@ app = crear_app("observador")
 
 _candado = threading.Lock()
 _estado = {"conectado": False, "inicio_ms": int(time.time() * 1000), "reconexiones": 0,
-           "eventos_totales": 0, "ultimo_error": None, "ultimo_evento_ms": None}
+           "eventos_totales": 0, "ultimo_error": None, "ultimo_evento_ms": None,
+           # Estado por fuente: "hubble" (red) y "tetragon" (kernel).
+           "fuentes": {}}
 
 
 class _EmisorAcotado(ProtocolEmitter):
@@ -62,18 +67,26 @@ def procesar(lineas: Iterable[str]) -> int:
     return kernel_watch.alimentar(emisor, lineas)
 
 
-def _bucle(fuente: Callable[[], Iterable[str]]) -> None:
-    """Sigue la fuente para siempre; si el CLI termina o falla, reconecta."""
+def procesar_tetragon(lineas: Iterable[str]) -> int:
+    """Alimenta el emisor con líneas del archivo de eventos de Tetragon."""
+    return kernel_watch.alimentar_tetragon(emisor, lineas)
+
+
+def _bucle(nombre: str, fuente: Callable[[], Iterable[str]],
+           procesador: Callable[[Iterable[str]], int]) -> None:
+    """Sigue una fuente para siempre; si termina o falla, reconecta con espera creciente."""
     espera = 1
     while True:
         try:
             with _candado:
-                _estado["conectado"] = True
-            procesar(fuente())
-            error = "hubble observe terminó"
+                _estado["fuentes"][nombre] = {"conectado": True, "error": None}
+                _estado["conectado"] = all(f["conectado"] for f in _estado["fuentes"].values())
+            procesador(fuente())
+            error = f"la fuente {nombre} terminó"
         except Exception as e:  # noqa: BLE001 — cualquier falla se reporta y se reintenta
-            error = f"{type(e).__name__}: {e}"
+            error = f"{nombre}: {type(e).__name__}: {e}"
         with _candado:
+            _estado["fuentes"][nombre] = {"conectado": False, "error": error}
             _estado.update(conectado=False, ultimo_error=error)
             _estado["reconexiones"] += 1
         time.sleep(espera)
@@ -92,7 +105,12 @@ def _fuente_hubble() -> Iterable[str]:
 def _arrancar() -> None:
     # OBSERVADOR_SIN_HUBBLE=1 en pruebas: no lanza el CLI.
     if os.getenv("OBSERVADOR_SIN_HUBBLE") != "1":
-        threading.Thread(target=_bucle, args=(_fuente_hubble,), daemon=True).start()
+        threading.Thread(target=_bucle, args=("hubble", _fuente_hubble, procesar), daemon=True).start()
+    ruta_tetragon = os.getenv("TETRAGON_EVENTOS")
+    if ruta_tetragon:
+        threading.Thread(target=_bucle,
+                         args=("tetragon", lambda: kernel_watch.seguir_archivo(ruta_tetragon), procesar_tetragon),
+                         daemon=True).start()
 
 
 @app.get("/v1/eventos")

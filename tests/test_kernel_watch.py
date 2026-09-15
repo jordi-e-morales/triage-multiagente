@@ -145,5 +145,69 @@ class TestCapturaReal403(unittest.TestCase):
         self.assertEqual(sum(e["verdict"] == "HTTP_403" for e in em.security_events), 1)
 
 
+FIXTURE_TETRAGON = os.path.join(os.path.dirname(FIXTURE), "tetragon_sigkill.jsonl")
+
+
+class TestCapturaRealTetragon(unittest.TestCase):
+    """Captura real: dos SIGKILL a exec desde el Enriquecedor y un process_exec normal."""
+
+    def setUp(self):
+        with open(FIXTURE_TETRAGON, encoding="utf-8") as f:
+            self.lineas = f.read().splitlines()
+        self.em = ProtocolEmitter()
+        self.n = kernel_watch.alimentar_tetragon(self.em, self.lineas)
+
+    def test_solo_las_acciones_de_enforcement(self):
+        self.assertEqual(self.n, 2)
+        self.assertEqual({e["verdict"] for e in self.em.security_events}, {"SIGKILL"})
+        self.assertEqual({e["layer"] for e in self.em.security_events}, {"tetragon"})
+
+    def test_origen_y_accion(self):
+        acciones = sorted(e["action"] for e in self.em.security_events)
+        self.assertEqual(acciones, ["exec /usr/bin/dash", "exec /usr/bin/env"])
+        for e in self.em.security_events:
+            self.assertEqual(e["source"], "agentes/enriquecedor")
+            self.assertEqual(e["detail"]["politica"], "agentes-sin-exec")
+            self.assertEqual(e["detail"]["visibilidad"], "kernel")
+            self.assertTrue(e["sin_traza"])
+
+    def test_deduplica(self):
+        em = ProtocolEmitter()
+        self.assertEqual(kernel_watch.alimentar_tetragon(em, self.lineas + self.lineas), 2)
+
+    # La rotación (renombrar un archivo abierto) es semántica de Linux, que es
+    # donde corre el observador; Windows no permite renombrar un archivo abierto.
+    @unittest.skipUnless(os.name == "posix", "rotación de archivos abiertos: solo Linux")
+    def test_seguir_archivo_con_rotacion(self):
+        import tempfile
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "eventos.log")
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write("uno\n")
+            recibidas: list[str] = []
+            gen = kernel_watch.seguir_archivo(ruta, espera_s=0.05)
+
+            def consumir():
+                for linea in gen:
+                    recibidas.append(linea.strip())
+                    if len(recibidas) == 3:
+                        return
+
+            hilo = threading.Thread(target=consumir, daemon=True)
+            hilo.start()
+            import time
+            time.sleep(0.2)
+            with open(ruta, "a", encoding="utf-8") as f:
+                f.write("dos\n")
+            time.sleep(0.2)
+            # Rotación: se renombra y se crea uno nuevo con el mismo nombre.
+            os.replace(ruta, ruta + ".1")
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write("tres\n")
+            hilo.join(timeout=3)
+            self.assertEqual(recibidas, ["uno", "dos", "tres"])
+
+
 if __name__ == "__main__":
     unittest.main()

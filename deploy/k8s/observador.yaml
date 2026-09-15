@@ -25,6 +25,14 @@ spec:
       labels: {app: observador, rol: observador}
     spec:
       automountServiceAccountToken: false
+      # Tetragon escribe sus eventos en un archivo DEL NODO. Para leer los de
+      # los agentes, el observador tiene que correr en el mismo nodo que ellos.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels: {rol: agente}
+              topologyKey: kubernetes.io/hostname
       initContainers:
         - name: copiar-hubble
           image: quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b
@@ -40,7 +48,7 @@ spec:
             - {name: herramientas, mountPath: /herramientas}
       containers:
         - name: observador
-          image: triage-agentes:0.4.0
+          image: triage-agentes:0.5.0
           imagePullPolicy: Never
           env:
             - {name: COMPONENTE, value: observador}
@@ -50,6 +58,8 @@ spec:
             - {name: HUBBLE_NAMESPACE, value: agentes}
             # El CLI de Hubble guarda configuración en $HOME; el FS es de solo lectura.
             - {name: HOME, value: /tmp}
+            # Eventos de Tetragon (lab/tetragon-up.sh los deja con permiso 644).
+            - {name: TETRAGON_EVENTOS, value: /tetragon/eventos.log}
           envFrom:
             - configMapRef: {name: endpoints}
           ports:
@@ -68,9 +78,16 @@ spec:
           volumeMounts:
             - {name: herramientas, mountPath: /herramientas, readOnly: true}
             - {name: tmp, mountPath: /tmp}
+            - {name: tetragon, mountPath: /tetragon, readOnly: true}
       volumes:
         - {name: herramientas, emptyDir: {}}
         - {name: tmp, emptyDir: {}}
+        # Carpeta de exportación de Tetragon en el nodo, SOLO LECTURA. El
+        # observador no corre como root: lee porque el archivo es 644.
+        - name: tetragon
+          hostPath:
+            path: /var/run/cilium/tetragon
+            type: Directory
 ---
 apiVersion: v1
 kind: Service

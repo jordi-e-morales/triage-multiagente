@@ -235,6 +235,117 @@ def alimentar(emisor: ProtocolEmitter, lineas: Iterable[str], ignorar_sondas: bo
     return emitidos
 
 
+# ─── Tetragon (capa de kernel) ────────────────────────────────────────────────
+#
+# Fuente: el archivo de eventos que Tetragon escribe en el nodo
+# (/var/run/cilium/tetragon/eventos.log, una línea JSON por evento). Validado
+# con captura real: tests/fixtures/tetragon_sigkill.jsonl (2026-09-14).
+# Se reportan las acciones de enforcement (hoy: SIGKILL). Los process_exec y
+# process_exit normales no se reportan: serían miles y no son decisiones.
+
+ACCIONES_TETRAGON = {"KPROBE_ACTION_SIGKILL": "SIGKILL"}
+
+
+def tetragon_a_evento(registro: dict) -> dict | None:
+    """Traduce una línea del archivo de eventos de Tetragon. None si no se reporta."""
+    kprobe = registro.get("process_kprobe")
+    if not kprobe:
+        return None
+    verdict = ACCIONES_TETRAGON.get(kprobe.get("action"))
+    if not verdict:
+        return None
+    proceso = kprobe.get("process") or {}
+    pod = proceso.get("pod") or {}
+    etiquetas = pod.get("pod_labels") or {}
+    app = etiquetas.get("app") or pod.get("workload") or pod.get("name") or "desconocido"
+    origen = f"{pod['namespace']}/{app}" if pod.get("namespace") else app
+    argumento = next((a.get("linux_binprm_arg", {}).get("path") for a in kprobe.get("args") or []
+                      if "linux_binprm_arg" in a), None)
+    return {
+        "layer": "tetragon", "source": origen, "verdict": verdict,
+        "action": f"exec {argumento}" if argumento else kprobe.get("function_name", "?"),
+        "detail": {
+            "visibilidad": "kernel",
+            "politica": kprobe.get("policy_name"),
+            "gancho": kprobe.get("function_name"),
+            "binario_que_ejecuta": proceso.get("binary"),
+            "pod": pod.get("name"),
+            "nodo": registro.get("node_name"),
+            "imagen": ((pod.get("container") or {}).get("image") or {}).get("name"),
+        },
+        # El kernel no ve encabezados HTTP: nunca hay traza. Por eso un
+        # SIGKILL siempre aparece sin contraparte en el carril izquierdo.
+        "trace_id": None,
+        "timestamp_ms": _hora_ms(registro.get("time")),
+        "_clave": ("tetragon", proceso.get("exec_id"), registro.get("time")),
+    }
+
+
+def alimentar_tetragon(emisor: ProtocolEmitter, lineas: Iterable[str]) -> int:
+    """Procesa líneas del archivo de eventos de Tetragon. Devuelve cuántos emitió."""
+    vistos: set = set()
+    emitidos = 0
+    for linea in lineas:
+        linea = linea.strip()
+        if not linea:
+            continue
+        if len(vistos) > MAX_MEMORIA:
+            vistos.clear()
+        try:
+            ev = tetragon_a_evento(json.loads(linea))
+        except (json.JSONDecodeError, ValueError, KeyError):
+            continue
+        if ev is None:
+            continue
+        clave = ev.pop("_clave")
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        emisor.emit_security_event(None, ev["layer"], ev["source"], ev["action"], ev["verdict"],
+                                   ev["detail"], trace_id=None, timestamp_ms=ev["timestamp_ms"])
+        emitidos += 1
+    return emitidos
+
+
+def seguir_archivo(ruta: str, espera_s: float = 0.5) -> Iterator[str]:
+    """
+    Como `tail -F`: entrega las líneas de un archivo que crece y sobrevive a la
+    rotación (Tetragon renombra el archivo al llegar a su tamaño máximo y crea
+    uno nuevo con el mismo nombre). Empieza desde el principio del archivo
+    actual. No termina nunca.
+    """
+    import os
+    import time as _time
+
+    archivo = None
+    inodo = None
+    resto = ""
+    while True:
+        if archivo is None:
+            try:
+                archivo = open(ruta, encoding="utf-8", errors="replace")
+                inodo = os.fstat(archivo.fileno()).st_ino
+            except FileNotFoundError:
+                _time.sleep(espera_s)
+                continue
+        trozo = archivo.readline()
+        if trozo:
+            resto += trozo
+            if resto.endswith("\n"):
+                yield resto
+                resto = ""
+            continue
+        # Sin datos nuevos: ¿rotó el archivo?
+        try:
+            if os.stat(ruta).st_ino != inodo:
+                archivo.close()
+                archivo = None
+                continue
+        except FileNotFoundError:
+            pass
+        _time.sleep(espera_s)
+
+
 def seguir(servidor: str = "localhost:4245", namespace: str = "agentes",
            binario: str = "hubble") -> Iterator[str]:
     """Líneas en vivo de `hubble observe -f`. Requiere el CLI hubble y acceso al relay."""

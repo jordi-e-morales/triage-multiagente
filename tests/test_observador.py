@@ -25,6 +25,8 @@ class TestObservador(unittest.TestCase):
         for nombre in ("hubble_l34_agentes.jsonl", "hubble_l7_registro.jsonl"):
             with open(os.path.join(FIXTURES, nombre), encoding="utf-8") as f:
                 observador.procesar(f.read().splitlines())
+        with open(os.path.join(FIXTURES, "tetragon_sigkill.jsonl"), encoding="utf-8") as f:
+            observador.procesar_tetragon(f.read().splitlines())
 
     @classmethod
     def tearDownClass(cls):
@@ -33,7 +35,7 @@ class TestObservador(unittest.TestCase):
 
     def test_sirve_todos_los_eventos_ordenados(self):
         ev = requests.get(f"{self.base}/v1/eventos").json()["eventos"]
-        self.assertEqual(len(ev), 9)                     # 7 L3/L4 + 2 L7
+        self.assertEqual(len(ev), 11)                    # 7 L3/L4 + 2 L7 + 2 SIGKILL
         self.assertEqual([e["timestamp_ms"] for e in ev], sorted(e["timestamp_ms"] for e in ev))
 
     def test_filtra_por_traza(self):
@@ -52,8 +54,14 @@ class TestObservador(unittest.TestCase):
 
     def test_estado(self):
         est = requests.get(f"{self.base}/v1/estado").json()
-        self.assertEqual(est["eventos_totales"], 9)
+        self.assertEqual(est["eventos_totales"], 11)
         self.assertFalse(est["conectado"])               # en pruebas no hay CLI de Hubble
+
+    def test_eventos_de_kernel(self):
+        ev = requests.get(f"{self.base}/v1/eventos").json()["eventos"]
+        kernel = [e for e in ev if e["layer"] == "tetragon"]
+        self.assertEqual({e["verdict"] for e in kernel}, {"SIGKILL"})
+        self.assertEqual(len(kernel), 2)
 
     def test_memoria_acotada(self):
         self.assertEqual(self.obs.emisor.security_events.maxlen, self.obs.MAX_EVENTOS)
