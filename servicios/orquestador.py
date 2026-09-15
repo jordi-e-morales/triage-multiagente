@@ -84,6 +84,8 @@ def conducir(corrida: dict, caso: Case) -> None:
                 corrida["llamadas"] += propias
         with _candado:
             corrida["llamadas"] += respuesta.get("llamadas", [])
+            # Eventos de la capa de contenido (Demo 2), si el agente los reportó.
+            corrida["seguridad"] += respuesta.get("seguridad_contenido", [])
         return respuesta["resultados"]
 
     def anexar_propio(tipo: str, contenido: dict) -> None:
@@ -169,6 +171,7 @@ def iniciar(p: PeticionCaso) -> dict:
         "pasos": [],
         "resultados": [],
         "llamadas": [],   # carril izquierdo: cada llamada entre componentes con su traza
+        "seguridad": [],  # capa de contenido (guardrail y acciones del Demo 2)
         "error": None,
     }
     with _candado:
@@ -186,4 +189,5 @@ def consultar(corrida_id: str) -> dict:
         if corrida is None:
             raise HTTPException(status_code=404, detail="corrida desconocida")
         return {**corrida, "pasos": list(corrida["pasos"]), "resultados": list(corrida["resultados"]),
-                "llamadas": sorted(corrida["llamadas"], key=lambda ll: ll["ts_ms"])}
+                "llamadas": sorted(corrida["llamadas"], key=lambda ll: ll["ts_ms"]),
+                "seguridad": list(corrida["seguridad"])}

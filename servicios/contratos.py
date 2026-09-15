@@ -59,6 +59,9 @@ class RespuestaAgente(BaseModel):
     # Llamadas que este componente hizo a otros mientras atendía la petición
     # (incluidas las de quien él llamó). Carril izquierdo del panel.
     llamadas: list[dict] = Field(default_factory=list)
+    # Eventos de la capa de contenido (guardrail y acciones del Demo 2). Solo
+    # el Enriquecedor los llena; los demás lo dejan vacío.
+    seguridad_contenido: list[dict] = Field(default_factory=list)
 
 
 def exigir_caso_recortado(caso: Case) -> None:

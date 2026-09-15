@@ -30,6 +30,7 @@ data:
   URL_ARBITRO: "http://arbitro:8000"
   URL_REGISTRO: "http://registro:8000"
   URL_OBSERVADOR: "http://observador:8000"
+  URL_GUARDRAIL: "http://guardrail:8000"
 
   # Modelos. En el lab local los dos apuntan al mismo contenedor de Ollama.
   # En dCloud: LLM_LOCAL_* -> vLLM con el 7B, LLM_GRANDE_* -> vLLM con el 32B.

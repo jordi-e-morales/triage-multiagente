@@ -51,6 +51,8 @@ _SERVICIOS = [
     ("registro", "URL_REGISTRO", "http://registro:8000"),
     # No es agente: sirve los eventos que observó la red (carril derecho).
     ("observador", "URL_OBSERVADOR", "http://observador:8000"),
+    # Capa de contenido (sustituto de Cisco AI Defense). No es agente.
+    ("guardrail", "URL_GUARDRAIL", "http://guardrail:8000"),
 ]
 
 
