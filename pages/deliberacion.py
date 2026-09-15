@@ -20,6 +20,7 @@ import time
 import requests
 import streamlit as st
 
+from pages import _checkpoints
 from pages._pipeline_view import render_dos_carriles
 from schemas.caso import load_case
 from servicios.config import presupuesto_tokens_caso, url_de
@@ -250,6 +251,58 @@ def _corrida(c: dict) -> None:
         st.caption("Deliberando… la página se actualiza sola.")
 
 
+# ─── Modo presentación (Fase 5): reproducir un checkpoint paso a paso ──────────
+
+def _render_momento(m: dict) -> None:
+    tipo = m["tipo"]
+    st.markdown(f"##### {e(m.get('titulo', ''))}")
+    if tipo == "expediente":
+        _expediente(m["case_id"])
+    elif tipo == "contexto":
+        _contexto(m["resultado"])
+    elif tipo == "seguridad":
+        _panel_demo2({"seguridad": m["eventos"]})
+    elif tipo == "disposicion":
+        _disposicion(m["resultado"])
+    else:
+        _intervencion(m["resultado"])
+
+
+def _modo_presentacion() -> None:
+    checkpoints = _checkpoints.listar()
+    if not checkpoints:
+        st.info("No hay checkpoints guardados en data/corridas/.")
+        return
+    nombres = [n for n, _ in checkpoints]
+    sel = st.selectbox("Checkpoint", nombres, key="cp_sel")
+    ruta = dict(checkpoints)[sel]
+    # Se prepara el guion completo al cargar (falla aquí, no en escena).
+    try:
+        ms = _checkpoints.momentos(_checkpoints.cargar(ruta))
+    except Exception as ex:  # noqa: BLE001
+        st.error(f"No se pudo cargar el checkpoint: {ex}")
+        return
+
+    if st.session_state.get("cp_ruta") != ruta:
+        st.session_state.cp_ruta = ruta
+        st.session_state.cp_paso = 0
+
+    paso = st.session_state.get("cp_paso", 0)
+    col1, col2, col3 = st.columns([2, 2, 6])
+    with col1:
+        if st.button("Siguiente paso ▶", use_container_width=True, disabled=paso >= len(ms) - 1):
+            st.session_state.cp_paso = min(paso + 1, len(ms) - 1)
+            st.rerun()
+    with col2:
+        if st.button("Reiniciar ↺", use_container_width=True):
+            st.session_state.cp_paso = 0
+            st.rerun()
+    st.caption(f"Paso {paso + 1} de {len(ms)}")
+
+    for m in ms[:paso + 1]:
+        _render_momento(m)
+
+
 # ─── Página ───────────────────────────────────────────────────────────────────
 
 def render():
@@ -259,6 +312,12 @@ def render():
                 "Triage de alertas con cuatro agentes y un registro, cada uno en su pod.",
                 unsafe_allow_html=True)
     st.markdown('<div class="red-bar"></div>', unsafe_allow_html=True)
+
+    modo = st.radio("Modo", ["En vivo", "Presentación (checkpoint)"], horizontal=True,
+                    label_visibility="collapsed")
+    if modo.startswith("Presentación"):
+        _modo_presentacion()
+        return
 
     _panel_de_control()
 
