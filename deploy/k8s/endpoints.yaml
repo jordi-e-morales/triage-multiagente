@@ -48,7 +48,7 @@ data:
   #
   # En dCloud vLLM corre en el HOST (deploy/vllm-host/) y se publica como los
   # Services vllm-local / vllm-grande. Con LLM_BACKEND=vllm, poner:
-  #   LLM_LOCAL_URL:    "http://vllm-local:8000"     LLM_LOCAL_MODELO:  "Qwen/Qwen2.5-7B-Instruct-FP8"
+  #   LLM_LOCAL_URL:    "http://vllm-local:8000"     LLM_LOCAL_MODELO:  "Qwen/Qwen2.5-7B-Instruct"
   #   LLM_GRANDE_URL:   "http://vllm-grande:8000"    LLM_GRANDE_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
   # Separar las URL (y los puertos del host detrás) es lo que permite a Cilium
   # impedir que el Enriquecedor (local, ve datos del sujeto) alcance el grande.

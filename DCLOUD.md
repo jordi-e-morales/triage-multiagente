@@ -71,7 +71,8 @@ Container Toolkit** para que `docker run --gpus all` funcione. Comprobar:
 
 ```bash
 nvidia-smi                                   # la L40S debe aparecer
-docker run --rm --gpus all $VLLM_IMAGEN nvidia-smi   # Docker ve la GPU
+# Docker ve la GPU (la imagen de vLLM arranca sola, por eso --entrypoint):
+docker run --rm --gpus all --entrypoint nvidia-smi vllm/vllm-openai:v0.6.6.post1
 ```
 
 Si el segundo falla, instalar el toolkit (una vez, va a `lab/bootstrap.sh`):
@@ -117,7 +118,7 @@ En `deploy/k8s/endpoints.yaml`:
 ```yaml
 LLM_BACKEND: "vllm"
 LLM_LOCAL_URL:    "http://vllm-local:8000"
-LLM_LOCAL_MODELO: "Qwen/Qwen2.5-7B-Instruct-FP8"
+LLM_LOCAL_MODELO: "Qwen/Qwen2.5-7B-Instruct"
 LLM_GRANDE_URL:    "http://vllm-grande:8000"
 LLM_GRANDE_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
 ```

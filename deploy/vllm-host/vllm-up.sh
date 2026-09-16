@@ -25,7 +25,11 @@ set -euo pipefail
 # ─── Configuración (sobrescribible por variable de entorno) ──────────────────
 IMAGEN="${VLLM_IMAGEN:-vllm/vllm-openai:v0.6.6.post1}"   # FIJA. No :latest.
 
-MODELO_LOCAL="${VLLM_MODELO_LOCAL:-Qwen/Qwen2.5-7B-Instruct-FP8}"
+# Local: el 7B oficial (bf16). vLLM lo cuantiza a FP8 al cargar (--quantization
+# fp8 abajo), que es el "7B en FP8 ~8 GB" del plan. NO existe un repo
+# "...-Instruct-FP8" oficial de Qwen; por eso se parte del base.
+MODELO_LOCAL="${VLLM_MODELO_LOCAL:-Qwen/Qwen2.5-7B-Instruct}"
+# Grande: el 32B ya cuantizado a 4 bits (AWQ), repo oficial.
 MODELO_GRANDE="${VLLM_MODELO_GRANDE:-Qwen/Qwen2.5-32B-Instruct-AWQ}"
 
 PUERTO_LOCAL="${VLLM_PUERTO_LOCAL:-18001}"     # 7B  (Enriquecedor)
