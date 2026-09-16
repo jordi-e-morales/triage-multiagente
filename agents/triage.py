@@ -463,8 +463,12 @@ def enriquecer(caso: Case, llamar: Llamar = call_ollama_estructurado) -> Resulta
                              "Sepáralos: un hecho solo puede citar evidencia de la misma procedencia.")
         return " ".join(problemas) or None
 
+    # La salida crece con el expediente: un "hecho" por evidencia (~150-200
+    # tokens con citas) más el resumen. 1400 se quedaba corto (medido: 1553 en
+    # un caso real). Se escala con el número de evidencias, con piso holgado.
+    tope_enriquecer = min(8000, max(3000, 200 * len(caso.evidence)))
     msg, met, n = _invocar("enriquecedor", caso, modelo("local"), SISTEMA_ENRIQUECEDOR, usuario,
-                           ContextoV1, {}, temperatura=0.1, max_tokens=1400, llamar=llamar,
+                           ContextoV1, {}, temperatura=0.1, max_tokens=tope_enriquecer, llamar=llamar,
                            max_items={"hechos": len(caso.evidence)}, validar_extra=validar_contexto)
     msg = redactar_sujeto(aplicar_procedencia(_limpiar_textos(msg, caso), caso), caso)
     return ResultadoAgente("enriquecedor", msg, met, n, citas_invalidas(msg, caso))
