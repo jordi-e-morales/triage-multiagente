@@ -290,6 +290,11 @@ def call_vllm_estructurado(
         "stream_options": {"include_usage": True},
         # vLLM: decodificación guiada por el JSON Schema.
         "guided_json": schema,
+        # Con decodificación guiada + temperatura baja, un modelo cuantizado
+        # (AWQ) se puede atorar repitiendo dentro de un campo de texto y llenar
+        # miles de tokens. repetition_penalty rompe ese bucle. Configurable por
+        # si hay que ajustarlo; 1.1 es el valor habitual para este síntoma.
+        "repetition_penalty": float(os.getenv("VLLM_REPETITION_PENALTY", "1.1")),
     }
     inicio = _time.perf_counter()
     ttft_ms = None
