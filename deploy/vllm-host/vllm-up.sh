@@ -85,6 +85,13 @@ RED_KIND="${VLLM_RED_KIND:-kind}"                       # red Docker del cluster
 
 mkdir -p "$CACHE_HF"
 
+# Limpiar SIEMPRE los dos contenedores al inicio, antes de arrancar cualquiera.
+# Si no, al relanzar tras un fallo, el grande viejo se queda ocupando VRAM y el
+# local nuevo no cabe (aparece como non_torch_memory), y como el script aborta
+# con set -e, nunca se llegaba a borrar el grande. Este barrido lo evita.
+echo ">> limpiando contenedores previos"
+docker rm -f vllm-local vllm-grande >/dev/null 2>&1 || true
+
 # ─── Arranque de un contenedor de vLLM ───────────────────────────────────────
 arrancar() {
   local nombre="$1" modelo="$2" puerto="$3" frac="$4" ctx="$5"; shift 5
