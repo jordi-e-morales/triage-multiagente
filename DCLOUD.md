@@ -102,16 +102,24 @@ Los dos modelos van en **AWQ** (4 bits). El local se cambió de FP8 a AWQ porque
 el FP8 dinámico obliga a cargar el bf16 (~15 GB) y comprimir, y ese pico no cabe
 al compartir GPU con el 32B; AWQ carga ya cuantizado (~5.5 GB), sin pico.
 
-El reparto lo fijan las fracciones (`0.22` local, `0.64` grande; suman 0.86,
-~6.4 GB de colchón). El 32B es el que aprieta. Si da "No available memory for
-the cache blocks": `VLLM_EAGER_GRANDE=1` (quita los grafos CUDA, ~2-3 GB, algo
-más lento), o bajar `VLLM_CTX_GRANDE`, o subir `VLLM_FRAC_GRANDE`.
+El reparto lo fijan las fracciones (`0.30` local, `0.62` grande; suman 0.92).
+Además de los pesos, vLLM reserva el **pico de activaciones**, que crece con la
+ventana (medido: 5.5 GB en el 7B a 32k). Por eso el local necesita más que sus
+~5.2 GB de pesos AWQ.
 
-**Ventana de contexto:** por defecto ambos abren `32768` (nativo de Qwen2.5), que
-arranca holgado. OJO: las ventanas COMPITEN por la VRAM (vLLM reserva
-activaciones proporcionales a max-model-len al perfilar la caché); medido en
-dCloud, `49152` en el 7B + `32768` en el 32B **no caben juntos** (el 7B se queda
-sin bloques de caché: "No available memory for cache blocks").
+**Antes de arrancar, la GPU debe estar casi vacía** (`nvidia-smi` ~1 MiB). Si un
+proceso viejo ocupa VRAM aparece en el log como `non_torch_memory` y deja la KV
+en negativo — nada arranca. Límpialo con `vllm-down.sh` o `kill -9` del PID.
+
+Si el 32B da "No available memory for the cache blocks" con la GPU limpia:
+`VLLM_EAGER_GRANDE=1` (quita grafos CUDA, ~2-3 GB), bajar `VLLM_CTX_GRANDE`, o
+`VLLM_KV_DTYPE=fp8`.
+
+**Ventana de contexto:** por defecto el local abre `32768` (el Enriquecedor ve el
+expediente completo) y el grande `16384` (los que debaten reciben el recortado).
+OJO: las ventanas COMPITEN por la VRAM (vLLM reserva activaciones proporcionales
+a max-model-len al perfilar la caché); medido en dCloud, `32768` en AMBOS no cabe
+en el L40S (el pico de activaciones del 32B a 32k no deja caché para los dos).
 
 Los expedientes de diseño son de ~35-40k y el Enriquecedor ve el expediente
 completo, así que para darle esa ventana hay que HACER SITIO, no solo subir la

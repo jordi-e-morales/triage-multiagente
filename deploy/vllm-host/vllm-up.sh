@@ -41,12 +41,15 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 # caché grande porque ve el expediente completo (~40k); el grande más aún: sus
 # pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
 # caché, así que necesita la fracción mayor.
-# Con el local en AWQ (~5.5 GB) le sobra con poco, así que se le baja para darle
-# más al 32B: 0.22 + 0.64 = 0.86; local ~10 GB, grande ~29.4 GB, ~6.4 GB colchón.
-# Si el 32B aún da "No available memory for cache blocks": VLLM_EAGER_GRANDE=1,
-# o bajar VLLM_CTX_GRANDE, o subir VLLM_FRAC_GRANDE.
-FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.22}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.64}"
+# Medido en dCloud (L40S, 44.43 GiB usables): además de los pesos, vLLM reserva
+# el PICO DE ACTIVACIONES, que crece con la ventana (5.5 GB en el 7B a 32k).
+# Por eso el local necesita más que solo sus ~5.2 GB de pesos AWQ.
+# 0.30 + 0.62 = 0.92; local ~13.3 GB (pesos 5.2 + activ 5.5 + KV ~2.6),
+# grande ~27.5 GB. IMPORTANTE: si nvidia-smi no está casi vacío antes de
+# arrancar, un proceso viejo ocupa VRAM (sale como non_torch_memory en el log)
+# y NADA cabe: límpialo con vllm-down.sh o kill -9 del PID.
+FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.62}"
 
 # Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
 # COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
@@ -62,8 +65,11 @@ FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.64}"
 #   bash deploy/vllm-host/vllm-up.sh
 # (caché KV en fp8 = la mitad; y bajar la ventana del grande le cede memoria).
 # Es calibración de dCloud; se hace cuando existan los expedientes de 40k.
+# Local 32k: el Enriquecedor ve el expediente completo, necesita la ventana.
+# Grande 16k: los que debaten reciben el caso recortado; bajarlo es donde se gana
+# el espacio (a 32k el pico de activaciones del 32B no deja caché para ambos).
 CTX_LOCAL="${VLLM_CTX_LOCAL:-32768}"
-CTX_GRANDE="${VLLM_CTX_GRANDE:-32768}"
+CTX_GRANDE="${VLLM_CTX_GRANDE:-16384}"
 
 # dtype de la caché KV. "auto" = como los pesos; "fp8" la reduce a la mitad (útil
 # para ganar ventana, a costa de un poco de precisión). Aplica a ambos.
