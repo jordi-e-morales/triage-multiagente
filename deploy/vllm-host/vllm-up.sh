@@ -46,17 +46,31 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.28}"
 FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.60}"
 
-# Ventana de contexto. El diseño usa expedientes de ~35-40k tokens (CLAUDE.md §4)
-# y el Enriquecedor (local) ve el expediente COMPLETO, así que su ventana debe
-# pasar de 40k: Qwen2.5 es 32k nativo, y arriba de eso se extiende con YaRN
-# (ROPE_LOCAL). Los que debaten reciben el caso recortado, que cabe en 32k.
-CTX_LOCAL="${VLLM_CTX_LOCAL:-49152}"    # > 40k para el expediente entero (con YaRN)
-CTX_GRANDE="${VLLM_CTX_GRANDE:-32768}"  # nativo; el recortado cabe
+# Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
+# COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
+# perfilar la caché. Medido en dCloud: 49k en el 7B + 32k en el 32B NO caben
+# juntos (al 7B no le quedaban bloques de caché). Por eso el default es 32k en
+# ambos (nativo de Qwen2.5), que arranca holgado.
+#
+# Para que el Enriquecedor tenga la ventana de ~40k del expediente completo
+# (CLAUDE.md §4) hay que hacer sitio, no solo subir CTX_LOCAL. Combinar (el valor
+# de VLLM_ROPE_LOCAL es el JSON de ROPE_YARN_49K que se define más abajo):
+#   VLLM_CTX_LOCAL=49152 VLLM_KV_DTYPE=fp8 VLLM_CTX_GRANDE=24576 \
+#   VLLM_ROPE_LOCAL='{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
+#   bash deploy/vllm-host/vllm-up.sh
+# (caché KV en fp8 = la mitad; y bajar la ventana del grande le cede memoria).
+# Es calibración de dCloud; se hace cuando existan los expedientes de 40k.
+CTX_LOCAL="${VLLM_CTX_LOCAL:-32768}"
+CTX_GRANDE="${VLLM_CTX_GRANDE:-32768}"
 
-# YaRN para estirar el 7B de 32k a la ventana de arriba. factor = 49152/32768≈1.5;
-# 2.0 deja margen. Poner VLLM_ROPE_LOCAL="" (o bajar CTX_LOCAL a <=32768) lo apaga.
-ROPE_LOCAL_DEFECTO='{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}'
-ROPE_LOCAL="${VLLM_ROPE_LOCAL-$ROPE_LOCAL_DEFECTO}"   # sin ':' => "" explícito lo apaga
+# dtype de la caché KV. "auto" = como los pesos; "fp8" la reduce a la mitad (útil
+# para ganar ventana, a costa de un poco de precisión). Aplica a ambos.
+KV_DTYPE="${VLLM_KV_DTYPE:-auto}"
+
+# YaRN para estirar el 7B más allá de 32k. APAGADO por defecto (la ventana por
+# defecto es 32k nativo). Receta lista para cuando se suba CTX_LOCAL > 32768:
+ROPE_YARN_49K='{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}'
+ROPE_LOCAL="${VLLM_ROPE_LOCAL-}"   # vacío = sin YaRN
 
 CACHE_HF="${VLLM_CACHE_HF:-$HOME/.cache/huggingface}"   # pesos, para no re-bajar
 RED_KIND="${VLLM_RED_KIND:-kind}"                       # red Docker del cluster
@@ -77,6 +91,7 @@ arrancar() {
     --served-model-name "$modelo" \
     --gpu-memory-utilization "$frac" \
     --max-model-len "$ctx" \
+    --kv-cache-dtype "$KV_DTYPE" \
     --enable-prefix-caching \
     "$@" >/dev/null
 }

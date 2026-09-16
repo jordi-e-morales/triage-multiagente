@@ -104,12 +104,23 @@ fracción mayor (con `0.52` se quedaba ~3.3 GB corto). Si aún no arranca: subir
 `VLLM_FRAC_GRANDE`, bajar `VLLM_CTX_GRANDE`, o añadir `--enforce-eager` al 32B
 (ahorra ~2-3 GB de grafos CUDA, a costa de algo de velocidad).
 
-**Ventana de contexto:** los expedientes son de ~35-40k tokens y el Enriquecedor
-ve el expediente completo, así que el modelo local abre `49152` con YaRN (Qwen2.5
-es 32k nativo). Los que debaten reciben el caso recortado y les basta `32768`.
-Es el otro punto a calibrar: si el local hace OOM, bajar `VLLM_CTX_LOCAL` (y/o
-subir `VLLM_FRAC_LOCAL`); si los expedientes acaban siendo ≤32k, apagar YaRN con
-`VLLM_ROPE_LOCAL=""` para no perder calidad en contextos cortos.
+**Ventana de contexto:** por defecto ambos abren `32768` (nativo de Qwen2.5), que
+arranca holgado. OJO: las ventanas COMPITEN por la VRAM (vLLM reserva
+activaciones proporcionales a max-model-len al perfilar la caché); medido en
+dCloud, `49152` en el 7B + `32768` en el 32B **no caben juntos** (el 7B se queda
+sin bloques de caché: "No available memory for cache blocks").
+
+Los expedientes de diseño son de ~35-40k y el Enriquecedor ve el expediente
+completo, así que para darle esa ventana hay que HACER SITIO, no solo subir la
+ventana. Receta (calibración, cuando existan los expedientes de 40k):
+
+```bash
+VLLM_CTX_LOCAL=49152 VLLM_KV_DTYPE=fp8 VLLM_CTX_GRANDE=24576 \
+VLLM_ROPE_LOCAL='{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
+bash deploy/vllm-host/vllm-up.sh
+```
+
+(caché KV en fp8 = la mitad; bajar la ventana del grande le cede memoria al 7B).
 
 Apagar todo: `bash deploy/vllm-host/vllm-down.sh`.
 
