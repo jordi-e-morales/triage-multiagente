@@ -98,11 +98,14 @@ Face al arrancar, a `~/.cache/huggingface` (se conserva entre reinicios del
 contenedor; se re-baja tras una reconstrucción del lab). El 32B AWQ (~19 GB)
 tarda varios minutos la primera vez. Vigilar con `docker logs -f vllm-grande`.
 
-El reparto de VRAM lo fijan las fracciones (`0.28` local, `0.60` grande; suman
-0.88, ~5.5 GB de colchón). El 32B, por sus pesos + grafos CUDA, necesita la
-fracción mayor (con `0.52` se quedaba ~3.3 GB corto). Si aún no arranca: subir
-`VLLM_FRAC_GRANDE`, bajar `VLLM_CTX_GRANDE`, o añadir `--enforce-eager` al 32B
-(ahorra ~2-3 GB de grafos CUDA, a costa de algo de velocidad).
+Los dos modelos van en **AWQ** (4 bits). El local se cambió de FP8 a AWQ porque
+el FP8 dinámico obliga a cargar el bf16 (~15 GB) y comprimir, y ese pico no cabe
+al compartir GPU con el 32B; AWQ carga ya cuantizado (~5.5 GB), sin pico.
+
+El reparto lo fijan las fracciones (`0.22` local, `0.64` grande; suman 0.86,
+~6.4 GB de colchón). El 32B es el que aprieta. Si da "No available memory for
+the cache blocks": `VLLM_EAGER_GRANDE=1` (quita los grafos CUDA, ~2-3 GB, algo
+más lento), o bajar `VLLM_CTX_GRANDE`, o subir `VLLM_FRAC_GRANDE`.
 
 **Ventana de contexto:** por defecto ambos abren `32768` (nativo de Qwen2.5), que
 arranca holgado. OJO: las ventanas COMPITEN por la VRAM (vLLM reserva
@@ -131,7 +134,7 @@ En `deploy/k8s/endpoints.yaml`:
 ```yaml
 LLM_BACKEND: "vllm"
 LLM_LOCAL_URL:    "http://vllm-local:8000"
-LLM_LOCAL_MODELO: "Qwen/Qwen2.5-7B-Instruct"
+LLM_LOCAL_MODELO: "Qwen/Qwen2.5-7B-Instruct-AWQ"
 LLM_GRANDE_URL:    "http://vllm-grande:8000"
 LLM_GRANDE_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
 ```

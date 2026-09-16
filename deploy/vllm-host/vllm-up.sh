@@ -25,10 +25,12 @@ set -euo pipefail
 # ─── Configuración (sobrescribible por variable de entorno) ──────────────────
 IMAGEN="${VLLM_IMAGEN:-vllm/vllm-openai:v0.6.6.post1}"   # FIJA. No :latest.
 
-# Local: el 7B oficial (bf16). vLLM lo cuantiza a FP8 al cargar (--quantization
-# fp8 abajo), que es el "7B en FP8 ~8 GB" del plan. NO existe un repo
-# "...-Instruct-FP8" oficial de Qwen; por eso se parte del base.
-MODELO_LOCAL="${VLLM_MODELO_LOCAL:-Qwen/Qwen2.5-7B-Instruct}"
+# Local: el 7B en AWQ (4 bits), repo oficial. Se eligió AWQ y no FP8 porque el
+# FP8 dinámico obliga a vLLM a cargar el bf16 (~15 GB) y comprimir: ese pico no
+# cabe compartiendo GPU con el 32B. AWQ carga ya cuantizado (~5.5 GB), sin pico,
+# y cumple la intención del plan (un local pequeño y barato, CLAUDE.md §8).
+MODELO_LOCAL="${VLLM_MODELO_LOCAL:-Qwen/Qwen2.5-7B-Instruct-AWQ}"
+QUANT_LOCAL="${VLLM_QUANT_LOCAL:-awq_marlin}"
 # Grande: el 32B ya cuantizado a 4 bits (AWQ), repo oficial.
 MODELO_GRANDE="${VLLM_MODELO_GRANDE:-Qwen/Qwen2.5-32B-Instruct-AWQ}"
 
@@ -39,12 +41,12 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 # caché grande porque ve el expediente completo (~40k); el grande más aún: sus
 # pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
 # caché, así que necesita la fracción mayor.
-# 0.28 + 0.60 = 0.88; local ~12.9 GB, grande ~27.6 GB, ~5.5 GB de colchón.
-# (Medido en dCloud: con 0.52 el grande se quedaba ~3.3 GB corto.)
-# Si aún no arranca: subir VLLM_FRAC_GRANDE, o bajar su ventana VLLM_CTX_GRANDE,
-# o añadirle --enforce-eager (ahorra los grafos CUDA, ~2-3 GB, algo más lento).
-FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.28}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.60}"
+# Con el local en AWQ (~5.5 GB) le sobra con poco, así que se le baja para darle
+# más al 32B: 0.22 + 0.64 = 0.86; local ~10 GB, grande ~29.4 GB, ~6.4 GB colchón.
+# Si el 32B aún da "No available memory for cache blocks": VLLM_EAGER_GRANDE=1,
+# o bajar VLLM_CTX_GRANDE, o subir VLLM_FRAC_GRANDE.
+FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.22}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.64}"
 
 # Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
 # COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
@@ -96,14 +98,22 @@ arrancar() {
     "$@" >/dev/null
 }
 
-# El 7B en FP8 (Ada Lovelace lo soporta); el 32B con AWQ (kernel marlin).
-# El local lleva YaRN solo si ROPE_LOCAL no está vacío (ventana > 32k nativo).
-opciones_local=(--quantization fp8)
+# Ambos en AWQ (kernel marlin). El local lleva YaRN solo si ROPE_LOCAL no está
+# vacío (ventana > 32k nativo).
+opciones_local=(--quantization "$QUANT_LOCAL")
 if [ -n "$ROPE_LOCAL" ]; then
   opciones_local+=(--rope-scaling "$ROPE_LOCAL")
 fi
 arrancar vllm-local  "$MODELO_LOCAL"  "$PUERTO_LOCAL"  "$FRAC_LOCAL"  "$CTX_LOCAL"  "${opciones_local[@]}"
-arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" --quantization awq_marlin
+
+# El 32B es el que más aprieta. --enforce-eager (VLLM_EAGER_GRANDE=1) libera la
+# memoria de los grafos CUDA (~2-3 GB) para la caché KV, a costa de algo de
+# velocidad. Útil si da "No available memory for the cache blocks".
+opciones_grande=(--quantization awq_marlin)
+if [ -n "${VLLM_EAGER_GRANDE:-}" ]; then
+  opciones_grande+=(--enforce-eager)
+fi
+arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" "${opciones_grande[@]}"
 
 # ─── Esperar a que ambos respondan /health ───────────────────────────────────
 esperar() {
