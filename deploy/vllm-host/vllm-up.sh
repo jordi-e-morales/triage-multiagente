@@ -84,8 +84,11 @@ arrancar() {
   local nombre="$1" modelo="$2" puerto="$3" frac="$4" ctx="$5"; shift 5
   echo ">> $nombre: $modelo  (host :$puerto, VRAM $frac)"
   docker rm -f "$nombre" >/dev/null 2>&1 || true
+  # SIN --restart: si el arranque falla (p.ej. no cabe la caché), el contenedor
+  # se queda muerto y no entra en bucle reintentando y llenando la VRAM. Cuando
+  # la config esté estable se puede añadir "--restart unless-stopped".
   docker run -d --name "$nombre" \
-    --gpus all --ipc=host --restart unless-stopped \
+    --gpus all --ipc=host \
     -p "${puerto}:8000" \
     -v "${CACHE_HF}:/root/.cache/huggingface" \
     "$IMAGEN" \
