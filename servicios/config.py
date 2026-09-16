@@ -126,6 +126,25 @@ def presupuesto_tokens_caso() -> int:
     return int(os.getenv("PRESUPUESTO_TOKENS_CASO", "30000"))
 
 
+def url_ai_defense() -> str:
+    """
+    URL base del gateway de Cisco AI Defense (incluye tenant y connection, hasta
+    /v1). Vacío = capa de contenido real DESHABILITADA (el demo corre offline con
+    solo el guardrail abierto). Es tenant-específica: va en env/ConfigMap, NO se
+    commitea al repo.
+    """
+    return os.getenv("URL_AI_DEFENSE", "").strip()
+
+
+def ai_defense_modelo() -> str:
+    return os.getenv("AI_DEFENSE_MODELO", "gpt-4o-mini")
+
+
+def ai_defense_habilitado() -> bool:
+    """Se muestra el showcase de AI Defense solo si hay URL y API key."""
+    return bool(url_ai_defense() and os.getenv("OPENAI_API_KEY", "").strip())
+
+
 def admin_visible() -> bool:
     """En el stand se oculta la página Admin con MOSTRAR_ADMIN=0."""
     return os.getenv("MOSTRAR_ADMIN", "1") != "0"
