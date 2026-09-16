@@ -102,20 +102,25 @@ Los dos modelos van en **AWQ** (4 bits). El local se cambió de FP8 a AWQ porque
 el FP8 dinámico obliga a cargar el bf16 (~15 GB) y comprimir, y ese pico no cabe
 al compartir GPU con el 32B; AWQ carga ya cuantizado (~5.5 GB), sin pico.
 
-El reparto lo fijan las fracciones (`0.30` local, `0.90` grande). Parece que
-suman >100%, pero NO es memoria física: `gpu_memory_utilization` es fracción del
-total y vLLM calcula la caché así:
+**Sin sacrificar ventana de contexto** (es el tema de la sesión): la caché KV va
+en **fp8** por defecto (mitad de memoria), lo que permite local 32k + grande 16k
+en el L40S. Huella medida: ~13 GB local + ~22 GB grande = ~35 GB de 46.
 
-```
-KV = 44.43 × util − pesos − non_torch − activaciones
-```
+Cómo arranca (todo en `vllm-up.sh`, no se teclea):
+- **Secuencial**, no en paralelo: primero el local, se espera a que cargue, y
+  solo entonces el grande. Si arrancan a la vez se pisan la memoria al perfilar
+  la caché y fallan de forma errática.
+- Fracciones `0.30` local, `0.90` grande. Parece >100% pero NO es memoria física:
+  `gpu_memory_utilization` es fracción del total y vLLM dimensiona la caché con
+  `KV = 44.43 × util − pesos − non_torch − activaciones`. El `non_torch` incluye
+  lo que ocupa el OTRO modelo; el grande arranca segundo, ve al local (~13 GB)
+  como non_torch, y por eso su util debe ser ALTA (0.90) para que su KV dé
+  positivo — físicamente solo usa ~22 GB.
+- El 32B corre con `--enforce-eager` por defecto (ahorra los grafos CUDA).
 
-El `non_torch` incluye lo que ocupa el OTRO modelo. El grande arranca **segundo**
-y ve al local (~13 GB) como non_torch, así que su util debe ser ALTA para que su
-KV dé positivo; físicamente solo usa ~26 GB. El local arranca primero (GPU casi
-vacía) y con `0.30` le basta. Además de los pesos, vLLM reserva el **pico de
-activaciones**, que crece con la ventana (medido: 5.5 GB en el 7B a 32k), y el
-32B corre con `--enforce-eager` por defecto para ahorrar los grafos CUDA.
+**No caben si la GPU no está limpia:** un proceso viejo aparece como `non_torch`
+y desplaza todo. `vllm-up.sh` barre ambos contenedores al inicio; aun así, si ves
+`non_torch` inesperadamente alto, revisa `nvidia-smi` (debe estar ~1 MiB antes).
 
 **Antes de arrancar, la GPU debe estar casi vacía** (`nvidia-smi` ~1 MiB). Si un
 proceso viejo ocupa VRAM aparece en el log como `non_torch_memory` y deja la KV
