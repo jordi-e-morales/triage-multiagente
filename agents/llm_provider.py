@@ -290,6 +290,12 @@ def call_vllm_estructurado(
         "stream_options": {"include_usage": True},
         # vLLM: decodificación guiada por el JSON Schema.
         "guided_json": schema,
+        # Backend de decodificación guiada. El de por defecto (outlines) se atora
+        # metiendo espacios en blanco infinitos entre los campos del JSON
+        # (whitespace runaway), lo que desborda los tokens. xgrammar respeta el
+        # esquema sin ese bug. Medido en dCloud: con outlines el enriquecedor
+        # generaba miles de tokens de basura; con xgrammar, JSON limpio.
+        "guided_decoding_backend": os.getenv("VLLM_GUIDED_BACKEND", "xgrammar"),
         # Con decodificación guiada + temperatura baja, un modelo cuantizado
         # (AWQ) se puede atorar repitiendo dentro de un campo de texto y llenar
         # miles de tokens. repetition_penalty rompe ese bucle. Configurable por
