@@ -36,12 +36,15 @@ PUERTO_LOCAL="${VLLM_PUERTO_LOCAL:-18001}"     # 7B  (Enriquecedor)
 PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árbitro)
 
 # Fracción del L40S (48 GB) por instancia = pesos + caché KV. El local necesita
-# caché grande porque ve el expediente completo (~40k); el grande la necesita
-# porque ahí vive la presión de memoria que la demo quiere mostrar.
-# 0.30 + 0.52 = 0.82; queda ~8.6 GB de colchón. CALIBRAR en dCloud: si algo no
-# arranca por VRAM, bajar la fracción o la ventana (CTX_*) del que sobra.
-FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.52}"
+# caché grande porque ve el expediente completo (~40k); el grande más aún: sus
+# pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
+# caché, así que necesita la fracción mayor.
+# 0.28 + 0.60 = 0.88; local ~12.9 GB, grande ~27.6 GB, ~5.5 GB de colchón.
+# (Medido en dCloud: con 0.52 el grande se quedaba ~3.3 GB corto.)
+# Si aún no arranca: subir VLLM_FRAC_GRANDE, o bajar su ventana VLLM_CTX_GRANDE,
+# o añadirle --enforce-eager (ahorra los grafos CUDA, ~2-3 GB, algo más lento).
+FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.28}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.60}"
 
 # Ventana de contexto. El diseño usa expedientes de ~35-40k tokens (CLAUDE.md §4)
 # y el Enriquecedor (local) ve el expediente COMPLETO, así que su ventana debe

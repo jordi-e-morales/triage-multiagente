@@ -98,9 +98,11 @@ Face al arrancar, a `~/.cache/huggingface` (se conserva entre reinicios del
 contenedor; se re-baja tras una reconstrucción del lab). El 32B AWQ (~19 GB)
 tarda varios minutos la primera vez. Vigilar con `docker logs -f vllm-grande`.
 
-El reparto de VRAM lo fijan las fracciones (`0.30` local, `0.52` grande; suman
-0.82). Si algo no arranca por memoria, bajarlas con
-`VLLM_FRAC_GRANDE=0.55 VLLM_FRAC_LOCAL=0.25 bash deploy/vllm-host/vllm-up.sh`.
+El reparto de VRAM lo fijan las fracciones (`0.28` local, `0.60` grande; suman
+0.88, ~5.5 GB de colchón). El 32B, por sus pesos + grafos CUDA, necesita la
+fracción mayor (con `0.52` se quedaba ~3.3 GB corto). Si aún no arranca: subir
+`VLLM_FRAC_GRANDE`, bajar `VLLM_CTX_GRANDE`, o añadir `--enforce-eager` al 32B
+(ahorra ~2-3 GB de grafos CUDA, a costa de algo de velocidad).
 
 **Ventana de contexto:** los expedientes son de ~35-40k tokens y el Enriquecedor
 ve el expediente completo, así que el modelo local abre `49152` con YaRN (Qwen2.5
