@@ -42,17 +42,18 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 # pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
 # caché, así que necesita la fracción mayor.
 # CLAVE (medido en dCloud, L40S 44.43 GiB): gpu_memory_utilization es fracción
-# del TOTAL, y en la cuenta de la caché vLLM resta el `non_torch_memory`, que
-# INCLUYE lo que ocupa el OTRO modelo ya cargado:
-#     KV = 44.43 × util − pesos − non_torch − activaciones
-# El grande arranca SEGUNDO, así que ve al local (~13 GB) como non_torch; para
-# que su KV dé positivo su util debe ser ALTA (~0.90), no baja. No suman >100%
-# físicamente: el grande solo usa ~26 GB; el 0.90 es para que la cuenta cierre.
-# El local arranca primero (GPU casi vacía) y con 0.30 le basta.
+# del TOTAL y vLLM la usa para dimensionar la caché KV; a 0.90 el 32B agarra
+# ~37 GB él solo (18 GB de KV que no necesita), y sumado al 7B NO cabe en 46 GB.
+# La solución es NO darle tanta KV: util moderada + ventanas chicas para que la
+# huella total baje a ~35 GB. Con estos valores (grande 8k / 0.85, local 16k /
+# 0.25) el grande usa ~25 GB y el local ~10 GB, con margen.
+# Sensible al orden: el local arranca primero (GPU limpia); el grande segundo ve
+# al local como non_torch, así que su util debe ser algo mayor para que su KV dé
+# positivo, pero SIN pasarse (0.85, no 0.90).
 # IMPORTANTE: si nvidia-smi no está casi vacío antes de arrancar, un proceso
 # viejo aparece como non_torch y NADA cabe: límpialo (vllm-up ya barre al inicio).
-FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
+FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.25}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.85}"
 
 # Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
 # COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
@@ -68,11 +69,13 @@ FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
 #   bash deploy/vllm-host/vllm-up.sh
 # (caché KV en fp8 = la mitad; y bajar la ventana del grande le cede memoria).
 # Es calibración de dCloud; se hace cuando existan los expedientes de 40k.
-# Local 32k: el Enriquecedor ve el expediente completo, necesita la ventana.
-# Grande 16k: los que debaten reciben el caso recortado; bajarlo es donde se gana
-# el espacio (a 32k el pico de activaciones del 32B no deja caché para ambos).
-CTX_LOCAL="${VLLM_CTX_LOCAL:-32768}"
-CTX_GRANDE="${VLLM_CTX_GRANDE:-16384}"
+# Ventanas chicas para que los dos quepan en 46 GB (ver nota de fracciones).
+# Local 16k: el Enriquecedor ve el expediente; con casos de desarrollo alcanza.
+# Grande 8k: los que debaten reciben el caso RECORTADO, no el expediente entero.
+# Es el punto de partida que ARRANCA; una vez arriba se pueden subir midiendo el
+# margen real en nvidia-smi (VLLM_CTX_LOCAL / VLLM_CTX_GRANDE).
+CTX_LOCAL="${VLLM_CTX_LOCAL:-16384}"
+CTX_GRANDE="${VLLM_CTX_GRANDE:-8192}"
 
 # dtype de la caché KV. "auto" = como los pesos; "fp8" la reduce a la mitad (útil
 # para ganar ventana, a costa de un poco de precisión). Aplica a ambos.
