@@ -34,7 +34,9 @@ fi
 echo ">> egress a vLLM en el host $HOSTIP (local :$PUERTO_LOCAL, grande :$PUERTO_GRANDE)"
 
 kubectl apply -f - <<EOF
-# Enriquecedor -> SOLO el modelo local (host :$PUERTO_LOCAL)
+# Enriquecedor -> modelo local. Se permiten AMBOS puertos (18001 el 7B, 18000 el
+# 32B) para que funcione en las dos configuraciones: dos modelos (7B en 18001) o
+# el modo temporal donde el 32B hace de local (18000). Ver nota en DCLOUD 5.2.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata: {name: enriquecedor-vllm-local, namespace: agentes}
@@ -42,7 +44,7 @@ spec:
   endpointSelector: {matchLabels: {app: enriquecedor}}
   egress:
     - toCIDRSet: [{cidr: ${HOSTIP}/32}]
-      toPorts: [{ports: [{port: "${PUERTO_LOCAL}", protocol: TCP}]}]
+      toPorts: [{ports: [{port: "${PUERTO_LOCAL}", protocol: TCP}, {port: "${PUERTO_GRANDE}", protocol: TCP}]}]
 ---
 # Investigador / Defensor / Árbitro -> SOLO el modelo grande (host :$PUERTO_GRANDE)
 apiVersion: cilium.io/v2

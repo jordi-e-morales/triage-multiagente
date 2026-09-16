@@ -157,11 +157,21 @@ En `deploy/k8s/endpoints.yaml`:
 
 ```yaml
 LLM_BACKEND: "vllm"
-LLM_LOCAL_URL:    "http://vllm-local:8000"
-LLM_LOCAL_MODELO: "Qwen/Qwen2.5-7B-Instruct-AWQ"
+# TEMPORAL: el 7B lo hace el 32B también. El checkpoint Qwen2.5-7B-Instruct-AWQ
+# salió ROTO (genera basura a nivel de carácter, con cualquier backend), y el
+# GPTQ-Int8 no cargó. Hasta tener un 7B que funcione, el 32B hace de "local".
+# Se pierde solo la separación de costo local($0)/frontier del contador; el resto
+# del demo queda igual. Para restaurar dos modelos: LLM_LOCAL_* de vuelta a
+# vllm-local:8000 + un 7B que cargue limpio (probar GPTQ-Int4 o re-descargar).
+LLM_LOCAL_URL:    "http://vllm-grande:8000"
+LLM_LOCAL_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
 LLM_GRANDE_URL:    "http://vllm-grande:8000"
 LLM_GRANDE_MODELO: "Qwen/Qwen2.5-32B-Instruct-AWQ"
 ```
+
+El backend de guided decoding es **xgrammar** por defecto (`VLLM_GUIDED_BACKEND`):
+el de vLLM por defecto (outlines) se atora con espacios en blanco infinitos y
+desborda los tokens. Sin esto, NINGÚN agente produce JSON válido.
 
 ```bash
 kubectl apply -f deploy/k8s/endpoints.yaml
