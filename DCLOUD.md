@@ -102,10 +102,20 @@ Los dos modelos van en **AWQ** (4 bits). El local se cambió de FP8 a AWQ porque
 el FP8 dinámico obliga a cargar el bf16 (~15 GB) y comprimir, y ese pico no cabe
 al compartir GPU con el 32B; AWQ carga ya cuantizado (~5.5 GB), sin pico.
 
-El reparto lo fijan las fracciones (`0.30` local, `0.62` grande; suman 0.92).
-Además de los pesos, vLLM reserva el **pico de activaciones**, que crece con la
-ventana (medido: 5.5 GB en el 7B a 32k). Por eso el local necesita más que sus
-~5.2 GB de pesos AWQ.
+El reparto lo fijan las fracciones (`0.30` local, `0.90` grande). Parece que
+suman >100%, pero NO es memoria física: `gpu_memory_utilization` es fracción del
+total y vLLM calcula la caché así:
+
+```
+KV = 44.43 × util − pesos − non_torch − activaciones
+```
+
+El `non_torch` incluye lo que ocupa el OTRO modelo. El grande arranca **segundo**
+y ve al local (~13 GB) como non_torch, así que su util debe ser ALTA para que su
+KV dé positivo; físicamente solo usa ~26 GB. El local arranca primero (GPU casi
+vacía) y con `0.30` le basta. Además de los pesos, vLLM reserva el **pico de
+activaciones**, que crece con la ventana (medido: 5.5 GB en el 7B a 32k), y el
+32B corre con `--enforce-eager` por defecto para ahorrar los grafos CUDA.
 
 **Antes de arrancar, la GPU debe estar casi vacía** (`nvidia-smi` ~1 MiB). Si un
 proceso viejo ocupa VRAM aparece en el log como `non_torch_memory` y deja la KV

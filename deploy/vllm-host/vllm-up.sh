@@ -41,15 +41,18 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 # caché grande porque ve el expediente completo (~40k); el grande más aún: sus
 # pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
 # caché, así que necesita la fracción mayor.
-# Medido en dCloud (L40S, 44.43 GiB usables): además de los pesos, vLLM reserva
-# el PICO DE ACTIVACIONES, que crece con la ventana (5.5 GB en el 7B a 32k).
-# Por eso el local necesita más que solo sus ~5.2 GB de pesos AWQ.
-# 0.30 + 0.62 = 0.92; local ~13.3 GB (pesos 5.2 + activ 5.5 + KV ~2.6),
-# grande ~27.5 GB. IMPORTANTE: si nvidia-smi no está casi vacío antes de
-# arrancar, un proceso viejo ocupa VRAM (sale como non_torch_memory en el log)
-# y NADA cabe: límpialo con vllm-down.sh o kill -9 del PID.
+# CLAVE (medido en dCloud, L40S 44.43 GiB): gpu_memory_utilization es fracción
+# del TOTAL, y en la cuenta de la caché vLLM resta el `non_torch_memory`, que
+# INCLUYE lo que ocupa el OTRO modelo ya cargado:
+#     KV = 44.43 × util − pesos − non_torch − activaciones
+# El grande arranca SEGUNDO, así que ve al local (~13 GB) como non_torch; para
+# que su KV dé positivo su util debe ser ALTA (~0.90), no baja. No suman >100%
+# físicamente: el grande solo usa ~26 GB; el 0.90 es para que la cuenta cierre.
+# El local arranca primero (GPU casi vacía) y con 0.30 le basta.
+# IMPORTANTE: si nvidia-smi no está casi vacío antes de arrancar, un proceso
+# viejo aparece como non_torch y NADA cabe: límpialo (vllm-up ya barre al inicio).
 FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.62}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
 
 # Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
 # COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
@@ -122,11 +125,11 @@ if [ -n "$ROPE_LOCAL" ]; then
 fi
 arrancar vllm-local  "$MODELO_LOCAL"  "$PUERTO_LOCAL"  "$FRAC_LOCAL"  "$CTX_LOCAL"  "${opciones_local[@]}"
 
-# El 32B es el que más aprieta. --enforce-eager (VLLM_EAGER_GRANDE=1) libera la
+# El 32B es el que más aprieta. --enforce-eager (encendido por defecto) libera la
 # memoria de los grafos CUDA (~2-3 GB) para la caché KV, a costa de algo de
-# velocidad. Útil si da "No available memory for the cache blocks".
+# velocidad. Apagable con VLLM_EAGER_GRANDE=0 cuando sobre memoria.
 opciones_grande=(--quantization awq_marlin)
-if [ -n "${VLLM_EAGER_GRANDE:-}" ]; then
+if [ "${VLLM_EAGER_GRANDE:-1}" != "0" ]; then
   opciones_grande+=(--enforce-eager)
 fi
 arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" "${opciones_grande[@]}"
