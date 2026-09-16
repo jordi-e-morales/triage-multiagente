@@ -463,10 +463,10 @@ def enriquecer(caso: Case, llamar: Llamar = call_ollama_estructurado) -> Resulta
                              "Sepáralos: un hecho solo puede citar evidencia de la misma procedencia.")
         return " ".join(problemas) or None
 
-    # La salida crece con el expediente: un "hecho" por evidencia (~150-200
-    # tokens con citas) más el resumen. 1400 se quedaba corto (medido: 1553 en
-    # un caso real). Se escala con el número de evidencias, con piso holgado.
-    tope_enriquecer = min(8000, max(3000, 200 * len(caso.evidence)))
+    # La salida crece con el expediente: un "hecho" por evidencia más el resumen.
+    # En GPU no hay que racanear: el único techo real es la ventana de contexto.
+    # Piso muy holgado y escala con las evidencias; el tope solo evita un runaway.
+    tope_enriquecer = min(24000, max(12000, 400 * len(caso.evidence)))
     msg, met, n = _invocar("enriquecedor", caso, modelo("local"), SISTEMA_ENRIQUECEDOR, usuario,
                            ContextoV1, {}, temperatura=0.1, max_tokens=tope_enriquecer, llamar=llamar,
                            max_items={"hechos": len(caso.evidence)}, validar_extra=validar_contexto)
@@ -481,7 +481,7 @@ def argumentar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente
     usuario = (f"{_renderizar_para_deliberar(caso, contexto)}\n\nDEBATE HASTA AHORA\n"
                f"{_renderizar_debate(historial)}\n\nRonda {ronda}. {tarea}")
     msg, met, n = _invocar("investigador", caso, modelo("grande"), SISTEMA_INVESTIGADOR, usuario,
-                           ArgumentoV1, {"ronda": ronda}, temperatura=0.4, max_tokens=900, llamar=llamar)
+                           ArgumentoV1, {"ronda": ronda}, temperatura=0.4, max_tokens=3000, llamar=llamar)
     return ResultadoAgente("investigador", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))
 
 
@@ -492,7 +492,7 @@ def objetar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente], 
     usuario = (f"{_renderizar_para_deliberar(caso, contexto)}\n\nDEBATE HASTA AHORA\n"
                f"{_renderizar_debate(historial)}\n\nRonda {ronda}. {tarea}")
     msg, met, n = _invocar("defensor", caso, modelo("grande"), SISTEMA_DEFENSOR, usuario,
-                           ObjecionV1, {"ronda": ronda}, temperatura=0.4, max_tokens=900, llamar=llamar)
+                           ObjecionV1, {"ronda": ronda}, temperatura=0.4, max_tokens=3000, llamar=llamar)
     return ResultadoAgente("defensor", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))
 
 
@@ -504,5 +504,5 @@ def deliberar(caso: Case, contexto: ContextoV1, historial: list[ResultadoAgente]
                f"{_renderizar_debate(historial)}{aviso}\n\nEmite tu disposición.")
     msg, met, n = _invocar("arbitro", caso, modelo("grande"), SISTEMA_ARBITRO, usuario, DisposicionV1,
                            {"presupuesto_agotado": presupuesto_agotado},
-                           temperatura=0.2, max_tokens=900, llamar=llamar)
+                           temperatura=0.2, max_tokens=3000, llamar=llamar)
     return ResultadoAgente("arbitro", _limpiar_textos(msg, caso), met, n, citas_invalidas(msg, caso))
