@@ -117,24 +117,7 @@ arrancar() {
     "$@" >/dev/null
 }
 
-# Ambos en AWQ (kernel marlin). El local lleva YaRN solo si ROPE_LOCAL no está
-# vacío (ventana > 32k nativo).
-opciones_local=(--quantization "$QUANT_LOCAL")
-if [ -n "$ROPE_LOCAL" ]; then
-  opciones_local+=(--rope-scaling "$ROPE_LOCAL")
-fi
-arrancar vllm-local  "$MODELO_LOCAL"  "$PUERTO_LOCAL"  "$FRAC_LOCAL"  "$CTX_LOCAL"  "${opciones_local[@]}"
-
-# El 32B es el que más aprieta. --enforce-eager (encendido por defecto) libera la
-# memoria de los grafos CUDA (~2-3 GB) para la caché KV, a costa de algo de
-# velocidad. Apagable con VLLM_EAGER_GRANDE=0 cuando sobre memoria.
-opciones_grande=(--quantization awq_marlin)
-if [ "${VLLM_EAGER_GRANDE:-1}" != "0" ]; then
-  opciones_grande+=(--enforce-eager)
-fi
-arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" "${opciones_grande[@]}"
-
-# ─── Esperar a que ambos respondan /health ───────────────────────────────────
+# ─── Esperar a que un contenedor responda /health ────────────────────────────
 esperar() {
   local nombre="$1" puerto="$2" intentos="${3:-120}"
   echo -n ">> esperando a $nombre (puede tardar: baja pesos y carga a VRAM)"
@@ -146,8 +129,28 @@ esperar() {
   done
   echo ""; echo "!! $nombre no respondió. Revisa: docker logs $nombre" >&2; return 1
 }
-esperar vllm-local  "$PUERTO_LOCAL"
-esperar vllm-grande "$PUERTO_GRANDE" 180   # el 32B tarda más
+
+# SECUENCIAL, no en paralelo. Antes arrancaba los dos con 'docker run -d' (no
+# bloquea) y esperaba al final: los dos perfilaban la caché a la vez, cada uno
+# veía la memoria que el otro estaba reservando como non_torch cambiante, y
+# fallaban de forma errática ("No available memory for cache blocks" con números
+# que no cuadraban). Ahora se arranca el local, se ESPERA a que cargue del todo,
+# y solo entonces el grande, que ya ve al local estable como non_torch.
+opciones_local=(--quantization "$QUANT_LOCAL")
+if [ -n "$ROPE_LOCAL" ]; then
+  opciones_local+=(--rope-scaling "$ROPE_LOCAL")
+fi
+arrancar vllm-local "$MODELO_LOCAL" "$PUERTO_LOCAL" "$FRAC_LOCAL" "$CTX_LOCAL" "${opciones_local[@]}"
+esperar  vllm-local "$PUERTO_LOCAL"
+
+# El 32B arranca SEGUNDO (con util alta, ver arriba) y con --enforce-eager por
+# defecto (libera grafos CUDA). Apagable con VLLM_EAGER_GRANDE=0.
+opciones_grande=(--quantization awq_marlin)
+if [ "${VLLM_EAGER_GRANDE:-1}" != "0" ]; then
+  opciones_grande+=(--enforce-eager)
+fi
+arrancar vllm-grande "$MODELO_GRANDE" "$PUERTO_GRANDE" "$FRAC_GRANDE" "$CTX_GRANDE" "${opciones_grande[@]}"
+esperar  vllm-grande "$PUERTO_GRANDE" 180   # el 32B tarda más
 
 # ─── Publicar dentro del cluster: Services (estáticos) + Endpoints (IP del host)
 # El host, visto desde los pods de kind, es la puerta de enlace de la red Docker
