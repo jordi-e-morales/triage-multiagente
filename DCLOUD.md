@@ -110,13 +110,14 @@ Cómo arranca (todo en `vllm-up.sh`, no se teclea):
 - **Secuencial**, no en paralelo: primero el local, se espera a que cargue, y
   solo entonces el grande. Si arrancan a la vez se pisan la memoria al perfilar
   la caché y fallan de forma errática.
-- Fracciones `0.30` local, `0.90` grande. Parece >100% pero NO es memoria física:
-  `gpu_memory_utilization` es fracción del total y vLLM dimensiona la caché con
-  `KV = 44.43 × util − pesos − non_torch − activaciones`. El `non_torch` incluye
-  lo que ocupa el OTRO modelo; el grande arranca segundo, ve al local (~13 GB)
-  como non_torch, y por eso su util debe ser ALTA (0.90) para que su KV dé
-  positivo — físicamente solo usa ~22 GB.
-- El 32B corre con `--enforce-eager` por defecto (ahorra los grafos CUDA).
+- Fracciones `0.30` local, `0.68` grande. vLLM **NO cuenta la memoria del otro
+  modelo**: cada instancia llena su presupuesto `util × 44.43` para sí misma, así
+  que los dos deben caber físicamente: `uso_local + uso_grande ≤ 44.43`. Medido:
+  el local con 0.30 usa ~8.5 GB; al grande le quedan ~36 GB → su fracción ≤ 0.80,
+  y 0.68 (~30 GB) deja colchón. **Si el grande hace OOM, BAJAR su fracción, no
+  subirla.**
+- El 32B corre con `--enforce-eager` y ambos con
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (evita OOM por fragmentación).
 
 **No caben si la GPU no está limpia:** un proceso viejo aparece como `non_torch`
 y desplaza todo. `vllm-up.sh` barre ambos contenedores al inicio; aun así, si ves

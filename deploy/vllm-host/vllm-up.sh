@@ -41,16 +41,17 @@ PUERTO_GRANDE="${VLLM_PUERTO_GRANDE:-18000}"   # 32B (Investigador/Defensor/Árb
 # caché grande porque ve el expediente completo (~40k); el grande más aún: sus
 # pesos (~19 GB AWQ) + buffers + grafos CUDA topan su propio techo antes de la
 # caché, así que necesita la fracción mayor.
-# No sacrificamos ventana de contexto: de eso trata la sesión (el impuesto de
-# contexto). Para que quepan los dos SIN recortar, la caché KV va en fp8 (mitad
-# de memoria, ver KV_DTYPE abajo). Con eso: local 32k ~13 GB, grande 16k ~22 GB,
-# total ~35 GB en 46. El grande arranca SEGUNDO y ve al local como non_torch, así
-# que su util debe ser alta (0.90) para que su KV dé positivo; físicamente usa
-# ~22 GB (la fórmula: KV = 44.43×util − pesos − non_torch − activaciones).
-# IMPORTANTE: si nvidia-smi no está casi vacío antes de arrancar, un proceso
-# viejo aparece como non_torch y NADA cabe: límpialo (vllm-up ya barre al inicio).
+# CLAVE (medido en dCloud): vLLM NO cuenta la memoria del OTRO modelo como
+# non_torch (el log del grande mostró non_torch=0.21 con el local ya cargado).
+# Por eso cada instancia llena su presupuesto `util × 44.43` PARA SÍ MISMA, y los
+# dos presupuestos tienen que caber juntos en la GPU física:
+#     uso_local + uso_grande ≈ (frac_local + frac_grande) × 44.43 ≤ 44.43
+# Medido: el local con 0.30 usa ~8.5 GB (no llena su presupuesto porque su caché
+# fp8 es chica). Al grande le queda ~36 GB → su frac ≤ 0.80; se le pone 0.68
+# (~30 GB) para dejar colchón. La caché va en fp8 (KV_DTYPE), así no se recorta la
+# ventana de contexto. Si aún no cabe, BAJAR frac_grande (no subirla).
 FRAC_LOCAL="${VLLM_FRAC_LOCAL:-0.30}"
-FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
+FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.68}"
 
 # Ventana de contexto. Los dos modelos comparten 46 GB, así que las ventanas
 # COMPITEN: vLLM reserva memoria de activaciones proporcional a max-model-len al
@@ -69,12 +70,12 @@ FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
 # Local 32k: el Enriquecedor ve el EXPEDIENTE COMPLETO — aquí vive el impuesto de
 # contexto de la sesión, así que esta ventana NO se recorta. Para ~40k, subir con
 # YaRN (ROPE_YARN_49K, ver arriba).
-# Grande 8k: los que debaten reciben el caso RECORTADO (no el expediente), así que
-# no necesitan más. Bajarlo a 8k reduce el PICO DE ACTIVACIONES del 32B en su
-# perfilado de arranque, que era lo que hacía OOM a 16k (no la caché). Con esto la
-# huella pico cabe: local ~13 GB + pesos 32B 19 GB + activación 8k ~3 GB ≈ 35 GB.
+# Grande 16k: los que debaten reciben el caso RECORTADO. La ventana ya no es el
+# problema (lo era la util, no la ventana): con la util correcta el grande usa
+# ~30 GB caiga la ventana donde caiga, porque la caché fp8 llena lo que sobra del
+# presupuesto. 16k les basta de sobra.
 CTX_LOCAL="${VLLM_CTX_LOCAL:-32768}"
-CTX_GRANDE="${VLLM_CTX_GRANDE:-8192}"
+CTX_GRANDE="${VLLM_CTX_GRANDE:-16384}"
 
 # dtype de la caché KV. Por DEFECTO fp8: la reduce a la mitad, que es lo que
 # permite mantener las ventanas de contexto (32k/16k) sin pasarse de VRAM. La
@@ -112,6 +113,7 @@ arrancar() {
     --gpus all --ipc=host \
     -p "${puerto}:8000" \
     -v "${CACHE_HF}:/root/.cache/huggingface" \
+    -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     "$IMAGEN" \
     --model "$modelo" \
     --served-model-name "$modelo" \
