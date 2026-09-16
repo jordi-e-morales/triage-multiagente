@@ -162,11 +162,15 @@ esperar  vllm-grande "$PUERTO_GRANDE" 180   # el 32B tarda más
 # ─── Publicar dentro del cluster: Services (estáticos) + Endpoints (IP del host)
 # El host, visto desde los pods de kind, es la puerta de enlace de la red Docker
 # del cluster. Se calcula, no se teclea (cambia en cada reconstrucción).
-HOSTIP="$(docker network inspect "$RED_KIND" -f '{{(index .IPAM.Config 0).Gateway}}')"
+# OJO: la red de kind es dual-stack; hay que tomar la puerta IPv4, no la IPv6
+# (fc00:...): vLLM se publica con -p en IPv4, y un Endpoint IPv6 no lo alcanza.
+# Se listan todas las gateways y se filtra la que empieza con dígitos (IPv4).
+HOSTIP="$(docker network inspect "$RED_KIND" -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' \
+          | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)"
 if [ -z "$HOSTIP" ]; then
-  echo "!! No pude obtener la IP del host en la red '$RED_KIND'." >&2; exit 1
+  echo "!! No pude obtener la IP IPv4 del host en la red '$RED_KIND'." >&2; exit 1
 fi
-echo ">> IP del host para el cluster: $HOSTIP"
+echo ">> IP del host (IPv4) para el cluster: $HOSTIP"
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 kubectl apply -f "$DIR/servicios.yaml"
