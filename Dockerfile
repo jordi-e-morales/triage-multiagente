@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements-servicios.txt
 
 # Solo el código que corre en los pods. La UI (pages/, app.py), el demo previo
 # (agents/pipeline.py, ml/) y las pruebas no entran a la imagen.
-COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/demo2.py agents/
+COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/demo2.py agents/costos.py agents/
 COPY schemas/ schemas/
 COPY servicios/ servicios/
 # protocols/: el observador traduce flujos de Hubble (kernel_watch).

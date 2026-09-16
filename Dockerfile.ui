@@ -24,7 +24,7 @@ COPY app.py .
 COPY pages/__init__.py pages/deliberacion.py pages/admin.py pages/_pipeline_view.py pages/_checkpoints.py pages/
 # protocols/: alineación de los dos carriles (y el emisor de eventos).
 COPY protocols/ protocols/
-COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/
+COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/costos.py agents/
 COPY schemas/ schemas/
 COPY servicios/__init__.py servicios/config.py servicios/verificar.py servicios/
 # Expedientes sintéticos que la UI ofrece para deliberar.
