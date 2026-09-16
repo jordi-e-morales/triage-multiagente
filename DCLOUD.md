@@ -177,22 +177,25 @@ vLLM en el host obliga a reexpresar la separación de la matriz de permisos por
 **puerto del host**: el Enriquecedor solo puede abrir el 18001 (local), los que
 debaten solo el 18000 (grande).
 
-> ⚠️ **Orden obligatorio: primero `estricta.yaml`, luego esto.** Al aplicar una
-> política con `egress`, Cilium pone al pod en **egress default-deny** y solo deja
-> salir lo que el CONJUNTO de políticas permita. `vllm-host-egress.yaml` NO trae
-> regla de DNS; el DNS lo habilita `base-dns`, que vive en `estricta.yaml` (paso
-> 6). Si aplicas el egress de modelos sin `estricta.yaml`, el pod se queda **sin
-> DNS** ("Temporary failure in name resolution") y no resuelve ni `registro` ni
-> `vllm-local`. Aplica el paso 6 ANTES que esto, o los dos juntos.
+> ⚠️ **Orden obligatorio: primero `estricta.yaml`, luego el egress de modelos.**
+> Al aplicar una política con `egress`, Cilium pone al pod en **egress
+> default-deny** y solo deja salir lo que el CONJUNTO de políticas permita. El
+> egress de modelos NO trae regla de DNS; el DNS lo habilita `base-dns`, que vive
+> en `estricta.yaml`. Si aplicas el egress de modelos sin `estricta.yaml`, el pod
+> se queda **sin DNS** ("Temporary failure in name resolution") y no resuelve ni
+> `registro` ni `vllm-local`.
 
 ```bash
-kubectl apply -f deploy/k8s/politicas/estricta.yaml            # trae base-dns (DNS)
-kubectl apply -f deploy/k8s/politicas/vllm-host-egress.yaml    # egress a los modelos
+kubectl apply -f deploy/k8s/politicas/estricta.yaml   # trae base-dns (DNS)
+bash deploy/vllm-host/egress-up.sh                    # egress a los modelos (CIDR real)
 ```
 
-Se aplica ADEMÁS de `estricta.yaml` (se suman). Si el modelo no responde pero un
-`curl` directo al host sí, ver la nota de clasificación `host`/`world` dentro del
-archivo (cambiar `toEntities: [host]` por el CIDR que imprime `vllm-up.sh`).
+`egress-up.sh` acota por **puerto del host** (enriquecedor→18001 local,
+debatientes→18000 grande) usando `toCIDRSet` con la IP real de la gateway de
+kind. Se usa CIDR y no `toEntities: [host]` porque, medido en dCloud, Cilium en
+kind NO clasifica esa gateway como la entidad `host`, y con `[host]` el egress
+queda en TIMEOUT. El script verifica que `base-dns` esté antes y calcula la IP
+(cambia en cada reconstrucción).
 
 ### 5.4 Calibrar las tres barras de caché (frío / tibio / caliente)
 
