@@ -66,12 +66,15 @@ FRAC_GRANDE="${VLLM_FRAC_GRANDE:-0.90}"
 #   bash deploy/vllm-host/vllm-up.sh
 # (caché KV en fp8 = la mitad; y bajar la ventana del grande le cede memoria).
 # Es calibración de dCloud; se hace cuando existan los expedientes de 40k.
-# Local 32k: el Enriquecedor ve el expediente completo (es donde vive el impuesto
-# de contexto de la sesión). Grande 16k: los que debaten reciben el caso
-# recortado. Caben porque la caché va en fp8 (KV_DTYPE). Para la ventana de ~40k
-# del expediente entero, subir CTX_LOCAL con YaRN (ROPE_YARN_49K, ver arriba).
+# Local 32k: el Enriquecedor ve el EXPEDIENTE COMPLETO — aquí vive el impuesto de
+# contexto de la sesión, así que esta ventana NO se recorta. Para ~40k, subir con
+# YaRN (ROPE_YARN_49K, ver arriba).
+# Grande 8k: los que debaten reciben el caso RECORTADO (no el expediente), así que
+# no necesitan más. Bajarlo a 8k reduce el PICO DE ACTIVACIONES del 32B en su
+# perfilado de arranque, que era lo que hacía OOM a 16k (no la caché). Con esto la
+# huella pico cabe: local ~13 GB + pesos 32B 19 GB + activación 8k ~3 GB ≈ 35 GB.
 CTX_LOCAL="${VLLM_CTX_LOCAL:-32768}"
-CTX_GRANDE="${VLLM_CTX_GRANDE:-16384}"
+CTX_GRANDE="${VLLM_CTX_GRANDE:-8192}"
 
 # dtype de la caché KV. Por DEFECTO fp8: la reduce a la mitad, que es lo que
 # permite mantener las ventanas de contexto (32k/16k) sin pasarse de VRAM. La
