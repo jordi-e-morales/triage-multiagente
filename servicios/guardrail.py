@@ -27,6 +27,8 @@ import time
 from pydantic import BaseModel, ConfigDict
 
 from servicios.comun import crear_app
+from servicios import ai_defense
+from servicios.config import ai_defense_habilitado, ai_defense_modelo, url_ai_defense
 
 ETIQUETA = "Guardrail abierto (sustituto de Cisco AI Defense en este lab)"
 UMBRAL = float(os.getenv("UMBRAL_GUARDRAIL", "0.5"))
@@ -127,5 +129,25 @@ def revisar_http(p: PeticionRevisar) -> dict:
 
 @app.get("/v1/info")
 def info() -> dict:
-    """Para la UI: qué modelo es y su etiqueta de sustituto."""
-    return {"etiqueta": ETIQUETA, "modelo": "Llama Prompt Guard 2 (22M)", "umbral": UMBRAL}
+    """Para la UI: qué modelo es, su etiqueta de sustituto y si AI Defense está."""
+    return {"etiqueta": ETIQUETA, "modelo": "Llama Prompt Guard 2 (22M)", "umbral": UMBRAL,
+            "ai_defense_habilitado": ai_defense_habilitado(),
+            "ai_defense_etiqueta": ai_defense.ETIQUETA}
+
+
+class PeticionTexto(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    texto: str
+
+
+@app.post("/v1/ai-defense")
+def ai_defense_http(p: PeticionTexto) -> dict:
+    """
+    Capa de contenido REAL: manda el texto al gateway de Cisco AI Defense y
+    devuelve su veredicto. La key sale de OPENAI_API_KEY (del entorno del pod, un
+    Secret), nunca del cuerpo. Si no está configurado, devuelve disponible:False y
+    la UI muestra "capa no disponible" sin romper.
+    """
+    return ai_defense.revisar_ai_defense(
+        p.texto, base_url=url_ai_defense(), api_key=os.getenv("OPENAI_API_KEY", ""),
+        model=ai_defense_modelo())

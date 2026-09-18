@@ -25,7 +25,7 @@ COPY requirements-guardrail.txt .
 RUN pip install --no-cache-dir -r requirements-guardrail.txt
 
 # Código: solo lo que usa el guardrail.
-COPY servicios/__init__.py servicios/comun.py servicios/guardrail.py servicios/
+COPY servicios/__init__.py servicios/comun.py servicios/guardrail.py servicios/config.py servicios/ai_defense.py servicios/
 # Modelo descargado (gated). Debe estar en ./modelo en el contexto de build.
 COPY modelo/ /modelo/
 

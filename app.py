@@ -181,6 +181,12 @@ with st.sidebar:
     st.markdown("---")
 
     pages = ["🧭 Deliberación"]
+    # Showcase de la capa de contenido (22M abierto vs Cisco AI Defense real).
+    # Solo aparece si AI Defense está configurado (toggle): sin internet/tenant,
+    # el demo corre offline y esta página no se muestra.
+    from servicios.config import ai_defense_habilitado
+    if ai_defense_habilitado():
+        pages.append("🛡️ Capa de contenido")
     if HIPOTECAS_DISPONIBLE:
         pages += [
             "📊 Dashboard",
@@ -225,6 +231,9 @@ page = st.session_state.page
 
 if page == "Deliberación":
     from pages.deliberacion import render
+    render()
+elif page == "Capa de contenido":
+    from pages.contenido import render
     render()
 elif page == "Dashboard":
     from pages.dashboard import render

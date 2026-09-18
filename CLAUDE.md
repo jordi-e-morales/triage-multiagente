@@ -256,7 +256,7 @@ edge/enterprise, no una miniatura del data center.
 
 | Nuestro componente | Producto real | En el lab |
 |---|---|---|
-| Capa de contenido | Cisco AI Defense | **NO disponible.** Guardrail abierto |
+| Capa de contenido | Cisco AI Defense | Guardrail abierto (offline) **+ AI Defense real opcional** |
 | Capa de red | Isovalent Enterprise Platform (Cilium) | Sí |
 | Capa de kernel | Isovalent Enterprise Runtime Security (Tetragon) | Sí |
 | Inferencia | vLLM en UCS con GPU | Sí (L40S en dCloud) |
@@ -268,6 +268,10 @@ edge/enterprise, no una miniatura del data center.
   contenido y es otra capa. Nunca mezclar las dos.
 - **Lo sustituido se dice en pantalla.** La capa de contenido lleva etiqueta
   visible: "Guardrail abierto (sustituto de Cisco AI Defense en este lab)".
+  Cuando se activa el showcase de AI Defense real (opcional, requiere internet y
+  API key), cada veredicto se etiqueta: el 22M como sustituto abierto y AI
+  Defense como el gateway real del tenant. El Demo 2 (cadena red/kernel) sigue
+  usando el guardrail abierto; el showcase de AI Defense es un momento aparte.
 - **No afirmar que algo está verificado si no lo está.**
 - No inventar nombres de producto ni capacidades de Cisco.
 

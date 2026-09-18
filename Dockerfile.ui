@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements-ui.txt
 
 # Solo lo que usa la UI de la demo.
 COPY app.py .
-COPY pages/__init__.py pages/deliberacion.py pages/admin.py pages/_pipeline_view.py pages/_checkpoints.py pages/
+COPY pages/__init__.py pages/deliberacion.py pages/contenido.py pages/admin.py pages/_pipeline_view.py pages/_checkpoints.py pages/
 # protocols/: alineación de los dos carriles (y el emisor de eventos).
 COPY protocols/ protocols/
 COPY agents/__init__.py agents/llm_provider.py agents/triage.py agents/costos.py agents/

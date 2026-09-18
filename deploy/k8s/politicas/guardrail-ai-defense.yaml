@@ -1,0 +1,41 @@
+# Egress del guardrail hacia el gateway de Cisco AI Defense (internet, HTTPS).
+# SOLO se aplica si usas AI Defense (la capa de contenido real). Sin esto, el
+# guardrail no tiene salida a internet (por diseño) y AI Defense da timeout.
+#
+# Se aplica ADEMÁS de estricta.yaml (Cilium suma las políticas). El guardrail
+# sigue sin poder llamar a ningún otro destino externo: solo DNS y este gateway.
+#
+# toFQDNs necesita que Cilium aprenda la IP del dominio, y para eso hace falta una
+# regla L7 de DNS (el proxy de DNS ve la respuesta). Por eso van las dos reglas.
+# NOTA de verificación en dCloud: el subdominio de región puede variar (aquí
+# us.gateway...); si tu tenant usa otro, ajusta matchName/matchPattern.
+#
+#   kubectl apply -f deploy/k8s/politicas/guardrail-ai-defense.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: guardrail-ai-defense
+  namespace: agentes
+spec:
+  endpointSelector:
+    matchLabels: {app: guardrail}
+  egress:
+    # 1. DNS con regla L7: deja que Cilium resuelva y APRENDA la IP del gateway
+    #    (requisito de toFQDNs). Acotado al dominio de AI Defense.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - {port: "53", protocol: UDP}
+            - {port: "53", protocol: TCP}
+          rules:
+            dns:
+              - matchPattern: "*.aidefense.security.cisco.com"
+    # 2. HTTPS al gateway (la IP la resolvió la regla de arriba).
+    - toFQDNs:
+        - matchPattern: "*.gateway.aidefense.security.cisco.com"
+      toPorts:
+        - ports:
+            - {port: "443", protocol: TCP}

@@ -141,8 +141,13 @@ def ai_defense_modelo() -> str:
 
 
 def ai_defense_habilitado() -> bool:
-    """Se muestra el showcase de AI Defense solo si hay URL y API key."""
-    return bool(url_ai_defense() and os.getenv("OPENAI_API_KEY", "").strip())
+    """
+    Toggle del showcase: basta con que la URL del gateway esté configurada (la
+    UI la lee del ConfigMap compartido). La API key vive solo en el pod del
+    guardrail; si faltara, la llamada devuelve disponible:False y el panel lo
+    dice, sin romper. Vacío = offline con solo el guardrail abierto.
+    """
+    return bool(url_ai_defense())
 
 
 def admin_visible() -> bool:

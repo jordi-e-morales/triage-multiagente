@@ -80,3 +80,11 @@ data:
 
   # "0" oculta la página Admin (presets del stand).
   MOSTRAR_ADMIN: "1"
+
+  # Capa de contenido REAL: gateway de Cisco AI Defense. VACÍO = deshabilitado
+  # (el demo corre offline con solo el guardrail abierto 22M, y la página "Capa
+  # de contenido" no aparece). Para activarlo, pon aquí la URL del gateway de tu
+  # tenant (hasta /v1) y crea el Secret 'openai' con la API key (ver DCLOUD.md).
+  # Es tenant-específica: cámbiala en el cluster, NO la commitees con tu URL real.
+  URL_AI_DEFENSE: ""
+  AI_DEFENSE_MODELO: "gpt-4o-mini"

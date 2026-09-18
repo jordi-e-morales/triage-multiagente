@@ -28,6 +28,12 @@ spec:
           env:
             # torch/transformers escriben caché en $HOME; apuntar a /tmp escribible.
             - {name: HOME, value: /tmp}
+            # API key para el gateway de Cisco AI Defense. Vive en un Secret, NO
+            # en el ConfigMap ni en git. optional=true: si el Secret no existe, el
+            # pod arranca igual y AI Defense queda como "no disponible" (offline).
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: openai, key: OPENAI_API_KEY, optional: true}
           envFrom:
             - configMapRef: {name: endpoints}
           ports:
